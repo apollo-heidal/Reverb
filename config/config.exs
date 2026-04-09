@@ -34,6 +34,7 @@ config :reverb, Reverb.Agent,
 
 config :reverb, Reverb.Scheduler,
   max_agents: 1,
+  start_paused: false,
   lease_ms: 300_000,
   poll_interval_ms: 5_000,
   recover_inflight_on_boot: true,

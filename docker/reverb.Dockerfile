@@ -15,11 +15,9 @@ RUN mix deps.get
 COPY lib lib
 COPY priv priv
 COPY docker docker
-COPY scripts scripts
-COPY examples examples
 COPY README.md README.md
 
-RUN chmod +x scripts/demo_agent.sh docker/reverb-entrypoint.sh docker/demo-prod-entrypoint.sh docker/demo-dev-entrypoint.sh
+RUN chmod +x docker/reverb-entrypoint.sh
 
 ENV MIX_ENV=prod
 

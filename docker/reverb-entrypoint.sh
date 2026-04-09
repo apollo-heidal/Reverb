@@ -4,11 +4,16 @@ set -euo pipefail
 export MIX_ENV="${MIX_ENV:-prod}"
 export REVERB_DATABASE_URL="${REVERB_DATABASE_URL:-ecto://postgres:postgres@reverb-db/reverb_dev}"
 export REVERB_NODE_NAME="${REVERB_NODE_NAME:-reverb@reverb}"
-export REVERB_ERLANG_COOKIE="${REVERB_ERLANG_COOKIE:-reverb_demo_cookie}"
+export REVERB_ERLANG_COOKIE="${REVERB_ERLANG_COOKIE:-reverb_cookie}"
 export REVERB_WORKSPACE_ROOT="${REVERB_WORKSPACE_ROOT:-/workspaces}"
-export REVERB_WORKSPACE_REPO_ROOT="${REVERB_WORKSPACE_REPO_ROOT:-/sandbox/reverb_demo_app}"
+export REVERB_WORKSPACE_REPO_ROOT="${REVERB_WORKSPACE_REPO_ROOT:-/sandbox/app}"
 export REVERB_WORKSPACE_SOURCE_REF="${REVERB_WORKSPACE_SOURCE_REF:-HEAD}"
 export REVERB_PATH="${REVERB_PATH:-/opt/reverb}"
+export REVERB_OPENCODE_WEB_ENABLED="${REVERB_OPENCODE_WEB_ENABLED:-false}"
+export REVERB_OPENCODE_WEB_HOST="${REVERB_OPENCODE_WEB_HOST:-0.0.0.0}"
+export REVERB_OPENCODE_WEB_PORT="${REVERB_OPENCODE_WEB_PORT:-4096}"
+export REVERB_OPENCODE_WEB_WORKDIR="${REVERB_OPENCODE_WEB_WORKDIR:-$REVERB_WORKSPACE_REPO_ROOT}"
+export REVERB_WORKSPACE_WAIT_TIMEOUT_SECS="${REVERB_WORKSPACE_WAIT_TIMEOUT_SECS:-300}"
 
 mkdir -p "$REVERB_WORKSPACE_ROOT"
 
@@ -21,16 +26,22 @@ until pg_isready -h "$database_host" -p "$database_port" -U postgres >/dev/null 
   sleep 1
 done
 
-if [[ ! -d "$REVERB_WORKSPACE_REPO_ROOT/.git" ]]; then
-  mkdir -p "$(dirname "$REVERB_WORKSPACE_REPO_ROOT")"
-  rm -rf "$REVERB_WORKSPACE_REPO_ROOT"
-  cp -R /opt/reverb/examples/reverb_demo_app "$REVERB_WORKSPACE_REPO_ROOT"
-  git -C "$REVERB_WORKSPACE_REPO_ROOT" init
-  git -C "$REVERB_WORKSPACE_REPO_ROOT" config user.name "Reverb Demo"
-  git -C "$REVERB_WORKSPACE_REPO_ROOT" config user.email "reverb-demo@example.invalid"
-  git -C "$REVERB_WORKSPACE_REPO_ROOT" add -A
-  git -C "$REVERB_WORKSPACE_REPO_ROOT" commit -m "Initial demo app state"
-fi
+start_wait="$(date +%s)"
+
+until [[ -d "$REVERB_WORKSPACE_REPO_ROOT/.git" ]]; do
+  echo "waiting for app repo at $REVERB_WORKSPACE_REPO_ROOT"
+  sleep 2
+
+  if [[ "$REVERB_WORKSPACE_WAIT_TIMEOUT_SECS" != "0" ]]; then
+    now="$(date +%s)"
+    elapsed="$((now - start_wait))"
+
+    if (( elapsed >= REVERB_WORKSPACE_WAIT_TIMEOUT_SECS )); then
+      echo "timed out waiting for app repo at $REVERB_WORKSPACE_REPO_ROOT" >&2
+      exit 1
+    fi
+  fi
+done
 
 if [[ -f "$REVERB_WORKSPACE_REPO_ROOT/mix.exs" && ! -d "$REVERB_WORKSPACE_REPO_ROOT/deps" ]]; then
   mix -C "$REVERB_WORKSPACE_REPO_ROOT" deps.get
@@ -38,5 +49,32 @@ fi
 
 mix ecto.create
 mix ecto.migrate
+
+if [[ "$REVERB_OPENCODE_WEB_ENABLED" == "true" ]]; then
+  mkdir -p "$REVERB_OPENCODE_WEB_WORKDIR"
+
+  (
+    cd "$REVERB_OPENCODE_WEB_WORKDIR"
+    exec opencode web --hostname "$REVERB_OPENCODE_WEB_HOST" --port "$REVERB_OPENCODE_WEB_PORT"
+  ) &
+
+  opencode_pid="$!"
+
+  cleanup() {
+    kill "$opencode_pid" >/dev/null 2>&1 || true
+  }
+
+  trap cleanup EXIT INT TERM
+
+  elixir --name "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt &
+  reverb_pid="$!"
+
+  wait -n "$opencode_pid" "$reverb_pid"
+  status="$?"
+  kill "$reverb_pid" "$opencode_pid" >/dev/null 2>&1 || true
+  wait "$reverb_pid" >/dev/null 2>&1 || true
+  wait "$opencode_pid" >/dev/null 2>&1 || true
+  exit "$status"
+fi
 
 exec elixir --name "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt

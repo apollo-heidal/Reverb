@@ -28,3 +28,4 @@ reverb-*.tar
 
 /examples/reverb_demo_app/_build
 /examples/reverb_demo_app/deps
+/.codex

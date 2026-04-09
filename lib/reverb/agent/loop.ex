@@ -15,6 +15,7 @@ defmodule Reverb.Agent.Loop do
 
   @default_config %{
     enabled: false,
+    start_paused: false,
     boot_delay_ms: 30_000,
     cooldown_ms: 30_000,
     idle_rotation_ms: 900_000,
@@ -82,12 +83,19 @@ defmodule Reverb.Agent.Loop do
       recovered_inflight_count: recovered_count
     }
 
-    if config.enabled do
+    cond do
+      config.enabled && config.start_paused ->
+        Logger.info("[Reverb.Loop] Started in paused mode")
+        Runtime.scheduler_status(%{status: :paused, max_agents: config.max_agents})
+        {:ok, %{state | status: :paused}}
+
+      config.enabled ->
       Logger.info("[Reverb.Loop] Starting, first loop in #{config.boot_delay_ms}ms")
       ref = Process.send_after(self(), :loop, config.boot_delay_ms)
       Runtime.scheduler_status(%{status: :booting, max_agents: config.max_agents})
       {:ok, %{state | loop_timer_ref: ref}}
-    else
+
+      true ->
       Logger.info("[Reverb.Loop] Started in disabled mode")
       Runtime.scheduler_status(%{status: :disabled, max_agents: config.max_agents})
       {:ok, %{state | status: :disabled}}

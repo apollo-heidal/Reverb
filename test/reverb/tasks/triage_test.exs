@@ -41,5 +41,17 @@ defmodule Reverb.Tasks.TriageTest do
 
       assert task.source_id == to_string(node())
     end
+
+    test "captain requests always create distinct tasks" do
+      msg1 = Message.new(:manual, "build a leaderboard", metadata: %{"source_kind" => "captain"})
+      msg2 = Message.new(:manual, "build a leaderboard", metadata: %{source_kind: "captain"})
+
+      {:ok, task1} = Triage.process(msg1)
+      {:ok, task2} = Triage.process(msg2)
+
+      assert task1.id != task2.id
+      assert task1.source_kind == "captain"
+      assert task2.source_kind == "captain"
+    end
   end
 end

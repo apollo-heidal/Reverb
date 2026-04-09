@@ -41,7 +41,8 @@ defmodule Reverb.Tasks.Triage do
       store_raw_message(message, fingerprint)
     end
 
-    # Upsert task by fingerprint
+    # Log-derived signals deduplicate by fingerprint, but captain requests should
+    # always become distinct queued tasks.
     attrs = %{
       body: message.message,
       category: to_string(message.kind),
@@ -53,7 +54,14 @@ defmodule Reverb.Tasks.Triage do
       metadata: metadata
     }
 
-    case Tasks.upsert_by_fingerprint(fingerprint, attrs) do
+    result =
+      if attrs.source_kind == "captain" do
+        Tasks.create_task(Map.put(attrs, :fingerprint, fingerprint))
+      else
+        Tasks.upsert_by_fingerprint(fingerprint, attrs)
+      end
+
+    case result do
       {:ok, task} ->
         Logger.debug("[Reverb.Triage] Task #{task.id} (fingerprint: #{fingerprint})")
 
@@ -99,7 +107,10 @@ defmodule Reverb.Tasks.Triage do
   end
 
   defp build_metadata(%Message{} = msg) do
-    base = msg.metadata || %{}
+    base =
+      (msg.metadata || %{})
+      |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+      |> Map.new()
 
     base
     |> Map.put("source", msg.source)

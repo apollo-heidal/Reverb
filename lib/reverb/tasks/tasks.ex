@@ -82,6 +82,7 @@ defmodule Reverb.Tasks do
     limit = Keyword.get(opts, :limit, 10)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     max_attempts = max_attempts_per_task()
+    source_kind = Keyword.get(opts, :source_kind)
 
     Task
     |> where([t], t.status in ^@active_statuses)
@@ -93,7 +94,14 @@ defmodule Reverb.Tasks do
     )
     |> where([t], is_nil(t.lease_expires_at) or t.lease_expires_at < ^now)
     |> where([t], t.attempt_count < ^max_attempts)
-    |> order_by([t], asc: t.priority, desc: t.severity, asc: t.inserted_at)
+    |> maybe_filter_source_kind(source_kind)
+    |> order_by(
+      [t],
+      asc: fragment("CASE WHEN ? = 'captain' THEN 0 ELSE 1 END", t.source_kind),
+      asc: t.priority,
+      desc: t.severity,
+      asc: t.inserted_at
+    )
     |> limit(^limit)
     |> Repo.all()
   end
@@ -141,6 +149,7 @@ defmodule Reverb.Tasks do
     limit = Keyword.get(opts, :limit, 50)
     status = Keyword.get(opts, :status)
     state = Keyword.get(opts, :state)
+    source_kind = Keyword.get(opts, :source_kind)
 
     base =
       Task
@@ -168,6 +177,8 @@ defmodule Reverb.Tasks do
       else
         base
       end
+
+    base = maybe_filter_source_kind(base, source_kind)
 
     Repo.all(base)
   end
@@ -471,4 +482,12 @@ defmodule Reverb.Tasks do
     end)
     |> Map.new()
   end
+
+  defp maybe_filter_source_kind(query, nil), do: query
+
+  defp maybe_filter_source_kind(query, source_kind) when is_binary(source_kind) do
+    from(t in query, where: t.source_kind == ^source_kind)
+  end
+
+  defp maybe_filter_source_kind(query, _source_kind), do: query
 end

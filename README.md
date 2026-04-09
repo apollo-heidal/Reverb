@@ -185,25 +185,31 @@ nix develop
 mix test
 ```
 
-## Demo Loop
+## Quickstart Smoke Test
 
-This repo now ships a disposable end-to-end demo:
+The canonical end-to-end smoke path is now the generator-driven quickstart. It
+creates a fresh Phoenix app with `mix phx.new`, installs Reverb into that
+generated app, and layers on the `/captain` steering UI.
 
-- throwaway emitter app: `examples/reverb_demo_app`
-- compose stack: `docker-compose.demo.yml`
-- deterministic demo agent: `scripts/demo_agent.sh`
+To run it from this repo locally:
 
-The Compose topology now includes:
+```bash
+sh quickstart/bootstrap.sh
+```
 
-- `demo-prod` as the emitting prod-style node
-- `demo-dev` as the mutable development checkout and inspection target
-- `reverb` as the standalone coordinator
-- `reverb-db` for coordinator persistence
+The intended one-line remote form is:
 
-The default demo stack uses the deterministic demo agent so the full loop can be
-verified without relying on a live model provider. To switch to OpenCode,
-override `REVERB_AGENT_ADAPTER`, `REVERB_AGENT_COMMAND`, `REVERB_AGENT_ARGS`,
-and `REVERB_AGENT_MODEL` in the compose environment.
+```bash
+curl -fsSL https://raw.githubusercontent.com/apollo-heidal/reverb/main/quickstart/bootstrap.sh | sh
+```
+
+The quickstart stack exposes:
+
+- `localhost:4000` for the generated Phoenix app and `/captain`
+- `localhost:4096` for OpenCode web running inside the Reverb container
+- a `prod` app container generated from `phx.new`
+- a standalone `reverb` coordinator container
+- separate Postgres containers for the app and Reverb state
 
 For real provider-backed runs, put agent auth only in a coordinator env file
 such as `.env.reverb` and load it into the Reverb container with `env_file`.
@@ -219,20 +225,10 @@ mount `~/.local/share/opencode` from the host into the container at
 `/root/.local/share/opencode` so the in-container `opencode` binary can reuse
 the same auth session.
 
-To boot the full demo stack:
-
-```bash
-docker compose -f docker-compose.demo.yml up --build
-```
-
-This requires a working local Docker daemon.
-
-For Podman in rootless environments where pasta networking blocks bridge mode,
-use the host-network override:
-
-```bash
-podman compose -f docker-compose.demo.yml -f docker-compose.podman.yml up --build -d
-```
+During quickstart setup, connect a provider through `localhost:4096`, but do
+not steer the app from OpenCode web. Use `localhost:4000/captain` for product
+requests. Captain tasks can queue freely, and Reverb schedules them before
+automated log-derived work.
 
 ## Installation Scaffold
 

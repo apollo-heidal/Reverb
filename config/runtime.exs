@@ -122,6 +122,12 @@ if config_env() == :prod do
   scheduler_overrides =
     []
     |> then(fn overrides ->
+      case System.get_env("REVERB_SCHED_START_PAUSED") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :start_paused, parse_bool.(value))
+      end
+    end)
+    |> then(fn overrides ->
       case System.get_env("REVERB_SCHED_RECOVER_INFLIGHT_ON_BOOT") do
         nil -> overrides
         value -> Keyword.put(overrides, :recover_inflight_on_boot, parse_bool.(value))

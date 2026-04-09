@@ -132,6 +132,42 @@ defmodule Reverb.Tasks.TasksTest do
       refute fresh_running.id in eligible_ids
       refute done_validating.id in eligible_ids
     end
+
+    test "prioritizes captain tasks ahead of automated work" do
+      now = DateTime.utc_now()
+
+      automated =
+        create_task(%{
+          body: "automated",
+          status: :todo,
+          state: :pending,
+          priority: 0
+        })
+
+      captain =
+        create_task(%{
+          body: "captain",
+          status: :todo,
+          state: :pending,
+          priority: 100,
+          source_kind: "captain"
+        })
+
+      [first | _rest] = Tasks.list_eligible(limit: 10, now: now)
+      assert first.id == captain.id
+      assert first.id != automated.id
+    end
+  end
+
+  describe "list_recent/1" do
+    test "filters by source_kind" do
+      captain = create_task(%{body: "captain task", source_kind: "captain"})
+      _signal = create_task(%{body: "signal task", source_kind: "signal"})
+
+      tasks = Tasks.list_recent(source_kind: "captain")
+
+      assert Enum.map(tasks, & &1.id) == [captain.id]
+    end
   end
 
   describe "recover_inflight_tasks/1" do

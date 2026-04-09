@@ -46,6 +46,15 @@ defmodule Reverb.Agent.LoopTest do
       assert status.alive == true
       assert status.status == :disabled
     end
+
+    test "starts in paused state when configured" do
+      Application.put_env(:reverb, Reverb.Agent, enabled: true, start_paused: true)
+      start_supervised!(Loop)
+
+      status = Loop.status()
+      assert status.alive == true
+      assert status.status == :paused
+    end
   end
 
   describe "status/0" do

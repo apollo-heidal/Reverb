@@ -18,7 +18,7 @@ defmodule Reverb.Operator.Router do
   end
 
   get "/api/tasks" do
-    opts = keyword_params(conn.params, [:limit, :since_minutes, :status, :state])
+    opts = keyword_params(conn.params, [:limit, :since_minutes, :status, :state, :source_kind])
     send_json(conn, 200, %{tasks: Reverb.tasks(opts)})
   end
 
