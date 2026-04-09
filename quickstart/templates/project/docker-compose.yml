@@ -1,0 +1,88 @@
+services:
+  prod-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: quickstart_dev
+    volumes:
+      - prod_db_data:/var/lib/postgresql/data
+
+  reverb-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reverb_dev
+    volumes:
+      - reverb_db_data:/var/lib/postgresql/data
+
+  prod:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    env_file:
+      - .env.reverb
+    depends_on:
+      - prod-db
+    environment:
+      MIX_ENV: dev
+      PHX_SERVER: "true"
+      PORT: "4000"
+      PHX_HOST: localhost
+      DATABASE_URL: ecto://postgres:postgres@prod-db/quickstart_dev
+      APP_NODE_NAME: prod@prod
+      REVERB_MODE: emitter
+      REVERB_OPERATOR_URL: http://reverb:4010
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/workspace
+
+  reverb:
+    build:
+      context: ./.reverb-src
+      dockerfile: docker/reverb.Dockerfile
+    env_file:
+      - .env.reverb
+    depends_on:
+      - prod
+      - reverb-db
+    environment:
+      MIX_ENV: prod
+      REVERB_MODE: receiver
+      REVERB_START_PUBSUB: "true"
+      REVERB_AGENT_ENABLED: "true"
+      REVERB_DATABASE_URL: ecto://postgres:postgres@reverb-db/reverb_dev
+      REVERB_POOL_SIZE: "5"
+      REVERB_NODE_NAME: reverb@reverb
+      REVERB_PROD_NODE: prod@prod
+      REVERB_ALLOWED_NODES: prod@prod
+      REVERB_AGENT_ADAPTER: opencode
+      REVERB_AGENT_MAX_AGENTS: "1"
+      REVERB_OPERATOR_ENABLED: "true"
+      REVERB_OPERATOR_PORT: "4010"
+      REVERB_YOLO_MODE: "true"
+      REVERB_SCHED_START_PAUSED: "true"
+      REVERB_WORKSPACE_ROOT: /workspaces
+      REVERB_WORKSPACE_REPO_ROOT: /sandbox/app
+      REVERB_VALIDATION_COMMANDS: mix compile
+      REVERB_OPENCODE_WEB_ENABLED: "true"
+      REVERB_OPENCODE_WEB_HOST: 0.0.0.0
+      REVERB_OPENCODE_WEB_PORT: "4096"
+      REVERB_OPENCODE_WEB_WORKDIR: /sandbox/app
+    ports:
+      - "4096:4096"
+    volumes:
+      - ./app:/sandbox/app
+      - reverb_workspaces:/workspaces
+      - opencode_data:/root/.local/share/opencode
+      # Optional developer shortcut:
+      # Replace the named volume above with your host auth directory to skip re-auth.
+      # - ~/.local/share/opencode:/root/.local/share/opencode
+
+volumes:
+  prod_db_data:
+  reverb_db_data:
+  reverb_workspaces:
+  opencode_data:
