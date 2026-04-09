@@ -1,0 +1,24 @@
+flowchart LR
+    A[Prod BEAM App] -->|Emit runtime signals| B[Reverb Receiver]
+    B --> C[Triage and Task Store]
+    C --> D[Scheduler and Claims]
+    D --> E[Isolated Workspace Worktree]
+    E --> F[Agent Execution]
+    F --> G[Validation]
+    G --> H[Commit to Task Branch]
+
+    H -->|Local-only mode| I[Task Stable]
+    H -->|Manual approval mode| J[Awaiting Approval]
+    J --> K[Approve Promotion]
+    H -->|Auto promotion mode| L[Push Branch]
+    K --> L
+    L --> M[Open or Update PR]
+    M --> N[Merge Feedback]
+    N --> O[Deploy Feedback]
+    O --> P[Deployed State]
+
+    Q[Shared Dev Repo] -.branch refs visible.- H
+    E -.ephemeral worktree.- Q
+    R[Operator HTTP and Runtime Status] -.inspect and control.- B
+    R -.inspect and control.- D
+    R -.inspect and control.- C

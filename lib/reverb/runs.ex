@@ -25,6 +25,36 @@ defmodule Reverb.Runs do
   def get_run(id), do: Repo.get(Run, id)
   def get_run!(id), do: Repo.get!(Run, id)
 
+  def latest_for_task(task_id) when is_binary(task_id) do
+    Repo.one(
+      from(r in Run,
+        where: r.task_id == ^task_id,
+        order_by: [desc: r.inserted_at],
+        limit: 1
+      )
+    )
+  end
+
+  def latest_for_branch(branch_name) when is_binary(branch_name) do
+    Repo.one(
+      from(r in Run,
+        where: r.branch_name == ^branch_name,
+        order_by: [desc: r.inserted_at],
+        limit: 1
+      )
+    )
+  end
+
+  def latest_for_pr_url(pr_url) when is_binary(pr_url) do
+    Repo.one(
+      from(r in Run,
+        where: r.pr_url == ^pr_url,
+        order_by: [desc: r.inserted_at],
+        limit: 1
+      )
+    )
+  end
+
   def list_recent(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     task_id = Keyword.get(opts, :task_id)
@@ -62,7 +92,18 @@ defmodule Reverb.Runs do
 
   def mark_finished(%Run{} = run, status, attrs \\ %{})
       when status in [:succeeded, :failed, :cancelled] do
-    update_run(run, Map.merge(%{status: status, finished_at: DateTime.utc_now()}, attrs))
+    finished_at = DateTime.utc_now()
+    result = update_run(run, Map.merge(%{status: status, finished_at: finished_at}, attrs))
+
+    if run.started_at do
+      :telemetry.execute(
+        [:reverb, :run, :finished],
+        %{duration_ms: max(DateTime.diff(finished_at, run.started_at, :millisecond), 0)},
+        %{run_id: run.id, task_id: run.task_id, status: status}
+      )
+    end
+
+    result
   end
 
   defp normalize_attrs(attrs) do

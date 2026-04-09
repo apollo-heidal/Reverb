@@ -22,12 +22,16 @@ defmodule Reverb.Agent.Loop do
     max_consecutive_failures: 3,
     backoff_base_ms: 120_000,
     backoff_max_ms: 900_000,
-    agent_command: "hermes",
-    agent_args: ["prompt", "--input", "-"],
+    agent_command: "opencode",
+    agent_args: ["run", "--format", "json", "--dangerously-skip-permissions"],
+    agent_model: "gpt-5.4",
     project_root: nil,
-    agent_adapter: :hermes,
+    agent_adapter: :opencode,
     max_agents: 1,
-    poll_interval_ms: 5_000
+    poll_interval_ms: 5_000,
+    recover_inflight_on_boot: true,
+    max_attempts_per_task: 3,
+    retry_backoff_ms: 30_000
   }
 
   # --- Public API ---
@@ -62,6 +66,7 @@ defmodule Reverb.Agent.Loop do
   def init(_opts) do
     ensure_dependencies_started()
     config = load_config()
+    recovered_count = maybe_recover_inflight_tasks(config)
 
     state = %{
       status: :booting,
@@ -73,7 +78,8 @@ defmodule Reverb.Agent.Loop do
       rotation_index: 0,
       loop_timer_ref: nil,
       workers: init_workers(config.max_agents),
-      config: config
+      config: config,
+      recovered_inflight_count: recovered_count
     }
 
     if config.enabled do
@@ -139,6 +145,7 @@ defmodule Reverb.Agent.Loop do
     state = %{state | loop_timer_ref: nil}
     Claims.reap_expired()
     state = dispatch_available_workers(state)
+    emit_queue_depth_metric()
     ref = Process.send_after(self(), :loop, next_delay(state))
     state = %{state | loop_timer_ref: ref}
 
@@ -195,6 +202,25 @@ defmodule Reverb.Agent.Loop do
 
     config = @default_config |> Map.merge(scheduler_config) |> Map.merge(app_config)
     %{config | project_root: config.project_root || File.cwd!()}
+  end
+
+  defp maybe_recover_inflight_tasks(config) do
+    if config.recover_inflight_on_boot do
+      count = Tasks.recover_inflight_tasks()
+
+      if count > 0 do
+        Logger.warning("[Reverb.Loop] Recovered #{count} in-flight tasks on boot")
+        Runtime.record_event(:inflight_tasks_recovered, %{count: count})
+      end
+
+      count
+    else
+      0
+    end
+  rescue
+    error ->
+      Logger.warning("[Reverb.Loop] Failed to recover in-flight tasks: #{inspect(error)}")
+      0
   end
 
   defp ensure_dependencies_started do
@@ -284,6 +310,12 @@ defmodule Reverb.Agent.Loop do
   defp start_worker(agent_id, task, state) do
     Logger.info("[Reverb.Loop] Dispatching #{task.id} to #{agent_id}")
     Runtime.record_event(:task_dispatched, %{task_id: task.id, agent_id: agent_id})
+
+    :telemetry.execute(
+      [:reverb, :task, :dispatched],
+      %{latency_ms: max(DateTime.diff(DateTime.utc_now(), task.inserted_at, :millisecond), 0)},
+      %{task_id: task.id, agent_id: agent_id}
+    )
 
     {:ok, claimed_task} =
       Tasks.claim_task(task, %{assigned_agent: agent_id, subject: Tasks.subject_for(task)})
@@ -506,5 +538,15 @@ defmodule Reverb.Agent.Loop do
   defp lease_ms do
     Application.get_env(:reverb, Reverb.Scheduler, [])
     |> Keyword.get(:lease_ms, 300_000)
+  end
+
+  defp emit_queue_depth_metric do
+    queue_depth = length(Tasks.list_eligible(limit: 1_000))
+
+    :telemetry.execute(
+      [:reverb, :scheduler, :queue],
+      %{depth: queue_depth},
+      %{}
+    )
   end
 end

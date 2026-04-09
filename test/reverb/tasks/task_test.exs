@@ -69,11 +69,12 @@ defmodule Reverb.Tasks.TaskTest do
                :claimed,
                :running,
                :validating,
+               :awaiting_approval,
                :stable,
                :failed,
                :shelved,
                :cancelled
-             ]
+              ]
     end
   end
 end

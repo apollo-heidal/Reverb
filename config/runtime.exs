@@ -5,6 +5,20 @@ split_env_list = fn
   value -> String.split(value, ";;", trim: true)
 end
 
+parse_bool = fn
+  value when is_binary(value) ->
+    case String.downcase(String.trim(value)) do
+      "1" -> true
+      "true" -> true
+      "yes" -> true
+      "on" -> true
+      _ -> false
+    end
+
+  _ ->
+    false
+end
+
 if config_env() == :prod do
   config :reverb, Reverb.Repo,
     url: System.get_env("REVERB_DATABASE_URL"),
@@ -30,6 +44,10 @@ if config_env() == :prod do
     config :reverb, topic_hash: topic
   end
 
+  if yolo_mode = System.get_env("REVERB_YOLO_MODE") do
+    config :reverb, yolo_mode: parse_bool.(yolo_mode)
+  end
+
   # Receiver: which prod node to connect to and which nodes to allow
   if prod_node = System.get_env("REVERB_PROD_NODE") do
     allowed =
@@ -50,6 +68,23 @@ if config_env() == :prod do
   agent_overrides =
     []
     |> then(fn overrides ->
+      case System.get_env("REVERB_AGENT_ENABLED") do
+        nil ->
+          overrides
+
+        value ->
+          enabled =
+            case String.downcase(value) do
+              "1" -> true
+              "true" -> true
+              "yes" -> true
+              _ -> false
+            end
+
+          Keyword.put(overrides, :enabled, enabled)
+      end
+    end)
+    |> then(fn overrides ->
       case System.get_env("REVERB_AGENT_ADAPTER") do
         nil -> overrides
         value -> Keyword.put(overrides, :agent_adapter, String.to_atom(value))
@@ -59,6 +94,12 @@ if config_env() == :prod do
       case System.get_env("REVERB_AGENT_COMMAND") do
         nil -> overrides
         value -> Keyword.put(overrides, :agent_command, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_AGENT_MODEL") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :agent_model, value)
       end
     end)
     |> then(fn overrides ->
@@ -76,6 +117,19 @@ if config_env() == :prod do
 
   if agent_overrides != [] do
     config :reverb, Reverb.Agent, agent_overrides
+  end
+
+  scheduler_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_SCHED_RECOVER_INFLIGHT_ON_BOOT") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :recover_inflight_on_boot, parse_bool.(value))
+      end
+    end)
+
+  if scheduler_overrides != [] do
+    config :reverb, Reverb.Scheduler, scheduler_overrides
   end
 
   workspace_overrides =
@@ -101,6 +155,38 @@ if config_env() == :prod do
 
   if workspace_overrides != [] do
     config :reverb, Reverb.Workspaces, workspace_overrides
+  end
+
+  git_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_GIT_AUTO_PROMOTE") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :auto_promote, parse_bool.(value))
+      end
+    end)
+
+  if git_overrides != [] do
+    config :reverb, Reverb.Git, git_overrides
+  end
+
+  operator_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_OPERATOR_ENABLED") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :enabled, parse_bool.(value))
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_OPERATOR_PORT") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :port, String.to_integer(value))
+      end
+    end)
+
+  if operator_overrides != [] do
+    config :reverb, Reverb.Operator, operator_overrides
   end
 
   if commands = split_env_list.(System.get_env("REVERB_VALIDATION_COMMANDS")) do

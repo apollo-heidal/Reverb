@@ -1,6 +1,8 @@
 defmodule Reverb.Agent.CLI.Codex do
   @moduledoc """
   Codex CLI wrapper.
+
+  This adapter is retained for compatibility, but it is not production-complete.
   """
 
   alias Reverb.Agent.CLI.Generic

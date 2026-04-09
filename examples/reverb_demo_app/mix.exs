@@ -21,7 +21,7 @@ defmodule ReverbDemoApp.MixProject do
   defp deps do
     [
       {:phoenix_pubsub, "~> 2.1"},
-      {:reverb, path: "../.."}
+      {:reverb, path: System.get_env("REVERB_PATH") || "../.."}
     ]
   end
 end

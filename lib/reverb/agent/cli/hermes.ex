@@ -4,6 +4,8 @@ defmodule Reverb.Agent.CLI.Hermes do
 
   Hermes is treated as the preferred multi-provider adapter because it can
   centralize model/provider/API-key handling outside of Reverb.
+
+  This adapter is retained for compatibility, but it is not production-complete.
   """
 
   alias Reverb.Agent.CLI.Generic

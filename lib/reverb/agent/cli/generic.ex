@@ -1,6 +1,8 @@
 defmodule Reverb.Agent.CLI.Generic do
   @moduledoc """
   Generic non-interactive CLI runner using stdin piping via `/bin/sh`.
+
+  This adapter is retained as a fallback, but it is not production-complete.
   """
 
   @spec run(String.t(), keyword()) :: {:ok, map()} | {:error, term()}

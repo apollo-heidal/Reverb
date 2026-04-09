@@ -147,6 +147,20 @@ defmodule Reverb do
     end
   end
 
+  @doc "Approves a validated task for remote push/PR promotion."
+  def approve_task(id) do
+    with %Reverb.Tasks.Task{} = task <- Reverb.Tasks.get_task(id) do
+      Reverb.Agent.Worker.approve(task)
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Ingests merge or deploy feedback for an existing cycle." 
+  def ingest_feedback(attrs) when is_map(attrs) do
+    Reverb.Feedback.ingest_event(attrs)
+  end
+
   @doc "Returns worker slot status."
   def agents_status do
     if Process.whereis(Reverb.Agent.Loop),

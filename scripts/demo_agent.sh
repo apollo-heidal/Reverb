@@ -18,7 +18,7 @@ case "$feature_id" in
     perl -0pi -e 's/def reverse_words\(_value\), do: :not_implemented/def reverse_words(value), do: value |> String.split(" ", trim: true) |> Enum.reverse() |> Enum.join(" ")/' "$target_file"
     ;;
   demo-sum-even)
-    perl -0pi -e 's/def sum_even\(_values\), do: :not_implemented/def sum_even(values), do: values |> Enum.filter\(&Integer.is_even\/1\) |> Enum.sum\(\)/' "$target_file"
+    perl -0pi -e 's/def sum_even\(_values\), do: :not_implemented/def sum_even(values), do: values |> Enum.filter\(&\(rem\(&1, 2\) == 0\)\) |> Enum.sum\(\)/' "$target_file"
     ;;
   *)
     echo "unsupported or missing feature id: ${feature_id:-<none>}"

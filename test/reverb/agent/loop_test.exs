@@ -102,4 +102,30 @@ defmodule Reverb.Agent.LoopTest do
       assert status.consecutive_failures >= 2
     end
   end
+
+  describe "boot recovery" do
+    test "requeues in-flight tasks on startup" do
+      {:ok, task} =
+        Tasks.create_task(%{
+          body: "stale validating task",
+          status: :worked_on,
+          state: :validating,
+          validation_status: :running,
+          assigned_agent: "agent-1",
+          current_run_id: Ecto.UUID.generate(),
+          workspace_path: "/tmp/reverb/stale"
+        })
+
+      start_loop(boot_delay_ms: 60_000, recover_inflight_on_boot: true)
+
+      Process.sleep(150)
+
+      updated = Tasks.get_task(task.id)
+      assert updated.state == :pending
+      assert updated.validation_status == :pending
+      assert updated.assigned_agent == nil
+      assert updated.current_run_id == nil
+      assert updated.workspace_path == nil
+    end
+  end
 end

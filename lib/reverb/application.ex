@@ -22,7 +22,7 @@ defmodule Reverb.Application do
     pubsub_child =
       if pubsub && start_pubsub? do
         Logger.info("[Reverb] Starting PubSub #{inspect(pubsub)} (standalone receiver)")
-        [{Phoenix.PubSub, name: pubsub}]
+        [pubsub_child_spec(pubsub)]
       else
         []
       end
@@ -38,7 +38,7 @@ defmodule Reverb.Application do
     repo_children = if repo_configured?(), do: [Reverb.Repo], else: []
 
     [
-      {Phoenix.PubSub, name: Reverb.LocalPubSub},
+      pubsub_child_spec(Reverb.LocalPubSub),
       Reverb.Runtime,
       Reverb.Claims
     ] ++ repo_children
@@ -73,13 +73,19 @@ defmodule Reverb.Application do
 
   defp mode_children(:receiver) do
     agent_config = Application.get_env(:reverb, Reverb.Agent, [])
+    operator_config = Application.get_env(:reverb, Reverb.Operator, [])
 
     receiver_children = [
       Reverb.Receiver.Guard,
       Reverb.Receiver.Listener,
       Reverb.Workspaces.Pool,
       {Task.Supervisor, name: Reverb.Agent.TaskSupervisor}
-    ]
+    ] ++
+      if Keyword.get(operator_config, :enabled, false) do
+        [Reverb.Operator.Server]
+      else
+        []
+      end
 
     agent_children =
       if Keyword.get(agent_config, :enabled, false) do
@@ -92,4 +98,8 @@ defmodule Reverb.Application do
   end
 
   defp mode_children(_), do: []
+
+  defp pubsub_child_spec(name) do
+    Supervisor.child_spec({Phoenix.PubSub, name: name}, id: {:phoenix_pubsub, name})
+  end
 end

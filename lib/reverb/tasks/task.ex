@@ -18,13 +18,14 @@ defmodule Reverb.Tasks.Task do
     :claimed,
     :running,
     :validating,
+    :awaiting_approval,
     :stable,
     :failed,
     :shelved,
     :cancelled
   ]
   @validation_status_values [:pending, :running, :passed, :failed]
-  @remote_status_values [:local_only, :push_pending, :pushed, :pr_opened, :merged]
+  @remote_status_values [:local_only, :push_pending, :pushed, :pr_opened, :merged, :deployed]
 
   schema "reverb_tasks" do
     field(:body, :string)

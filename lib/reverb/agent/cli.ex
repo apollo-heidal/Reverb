@@ -3,7 +3,7 @@ defmodule Reverb.Agent.CLI do
   Provider-neutral boundary for non-interactive coding-agent CLI execution.
   """
 
-  alias Reverb.Agent.CLI.{Claude, Codex, Generic, Hermes}
+  alias Reverb.Agent.CLI.{Claude, Codex, Generic, Hermes, OpenCode}
 
   @type result :: %{
           provider: atom(),
@@ -20,6 +20,7 @@ defmodule Reverb.Agent.CLI do
     adapter = Keyword.get(opts, :adapter, infer_adapter(opts))
 
     case adapter do
+      :opencode -> OpenCode.run(prompt, opts)
       :codex -> Codex.run(prompt, opts)
       :claude -> Claude.run(prompt, opts)
       :hermes -> Hermes.run(prompt, opts)
@@ -34,6 +35,7 @@ defmodule Reverb.Agent.CLI do
         executable = Path.basename(command)
 
         cond do
+          String.contains?(executable, "opencode") -> :opencode
           String.contains?(executable, "codex") -> :codex
           String.contains?(executable, "claude") -> :claude
           String.contains?(executable, "hermes") -> :hermes
@@ -41,7 +43,7 @@ defmodule Reverb.Agent.CLI do
         end
 
       _ ->
-        Keyword.get(opts, :agent_adapter, :generic)
+        Keyword.get(opts, :agent_adapter, :opencode)
     end
   end
 end

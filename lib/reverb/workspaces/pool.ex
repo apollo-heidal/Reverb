@@ -118,6 +118,8 @@ defmodule Reverb.Workspaces.Pool do
       end)
     end
 
+    _ = Reverb.Git.prune_worktrees()
+
     {:noreply, state}
   end
 

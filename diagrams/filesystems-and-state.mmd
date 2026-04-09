@@ -1,0 +1,59 @@
+flowchart LR
+    subgraph PROD[Prod Host]
+        P1["Prod BEAM App"]
+        P2["Emitter Runtime"]
+        P3["Prod App Filesystem<br/>owned by prod app<br/>not writable by Reverb"]
+        P4[("Prod App DB<br/>owned by prod app")]
+        P1 --> P2
+        P1 --- P3
+        P1 <--> P4
+    end
+
+    subgraph REVERB[Reverb Host]
+        R1["Receiver Listener"]
+        R2["Triage and Scheduler"]
+        R3[("Reverb DB<br/>tasks, runs, raw messages")]
+        R4["Coordinator Repo Root<br/>/sandbox/app<br/>git repo with task branches"]
+        R5["Ephemeral Worktrees<br/>/workspaces/task-branch<br/>created per run and cleaned up"]
+        R6["Agent Process"]
+        R7["Validation Process"]
+        R8["Runtime State<br/>claims, leases, scheduler status,<br/>recent events"]
+        R9["Operator HTTP"]
+
+        R1 --> R2
+        R2 <--> R3
+        R2 <--> R8
+        R2 --> R5
+        R5 --- R4
+        R5 --> R6
+        R6 --> R5
+        R5 --> R7
+        R7 --> R5
+        R5 -->|commit result| R4
+        R9 -.read/control.- R2
+        R9 -.read.- R3
+        R9 -.read.- R8
+    end
+
+    subgraph DEV[Dev Host]
+        D1["Shared Dev Checkout<br/>human-facing clone or mounted repo"]
+        D2["Human Operator"]
+        D3[("Dev App DB<br/>optional local dev database")]
+        D4["Local Branch Inspection"]
+        D2 --> D1
+        D1 --> D4
+        D1 <--> D3
+    end
+
+    P2 -->|PubSub over BEAM distribution| R1
+    R4 -.shared repo volume or clone relationship.- D1
+
+    A1["Prod DB access<br/>prod app only<br/>Reverb should not depend on it"] -.ownership.- P4
+    A2["Reverb DB access<br/>Reverb only<br/>stores coordinator state"] -.ownership.- R3
+    A3["Dev DB access<br/>dev tools and app only<br/>optional for local verification"] -.ownership.- D3
+
+    S1["Durable coordinator state<br/>Reverb DB records plus git branches in /sandbox/app"] --- R3
+    S1 --- R4
+    S2["Ephemeral coordinator state<br/>worktrees in /workspaces and in-memory leases/claims"] --- R5
+    S2 --- R8
+    S3["Human-visible state<br/>shared dev checkout may remain on main/master<br/>even when task branches exist in coordinator repo"] --- D1

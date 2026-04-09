@@ -1,7 +1,7 @@
-FROM hexpm/elixir:1.18.4-erlang-27.3-debian-bookworm-20250428-slim
+FROM hexpm/elixir:1.18.4-erlang-27.1.3-debian-bookworm-20250610-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash ca-certificates git openssh-client postgresql-client && \
+    apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/reverb
@@ -19,10 +19,16 @@ COPY scripts scripts
 COPY examples examples
 COPY README.md README.md
 
-RUN chmod +x scripts/demo_agent.sh docker/reverb-entrypoint.sh docker/demo-prod-entrypoint.sh
+RUN chmod +x scripts/demo_agent.sh docker/reverb-entrypoint.sh docker/demo-prod-entrypoint.sh docker/demo-dev-entrypoint.sh
 
 ENV MIX_ENV=prod
 
 RUN mix compile
+
+RUN set -eux; \
+    curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path; \
+    install -m 0755 /root/.opencode/bin/opencode /usr/local/bin/opencode; \
+    opencode --version; \
+    rm -rf /root/.opencode
 
 ENTRYPOINT ["/opt/reverb/docker/reverb-entrypoint.sh"]

@@ -90,17 +90,24 @@ defmodule Reverb.Receiver.Listener do
 
   # Receive Reverb messages from PubSub
   def handle_info({:reverb_message, message}, state) do
-    Logger.debug("[Reverb.Listener] Received message: #{String.slice(message.message, 0, 80)}")
+    case Reverb.Message.validate_incoming(message) do
+      {:ok, message} ->
+        Logger.debug("[Reverb.Listener] Received message: #{String.slice(message.message, 0, 80)}")
 
-    Reverb.Runtime.record_event(:message_received, %{
-      kind: message.kind,
-      source: message.source,
-      severity: message.severity,
-      fingerprint: Reverb.Message.fingerprint(message)
-    })
+        Reverb.Runtime.record_event(:message_received, %{
+          kind: message.kind,
+          source: message.source,
+          severity: message.severity,
+          fingerprint: Reverb.Message.fingerprint(message)
+        })
 
-    # Triage asynchronously to avoid blocking the listener
-    Task.start(fn -> Triage.process(message) end)
+        # Triage asynchronously to avoid blocking the listener
+        Task.start(fn -> Triage.process(message) end)
+
+      {:error, reason} ->
+        Logger.warning("[Reverb.Listener] Rejected inbound message: #{inspect(reason)}")
+        Reverb.Runtime.record_event(:message_rejected, %{reason: inspect(reason)})
+    end
 
     {:noreply, state}
   end
