@@ -17,6 +17,7 @@ defmodule ${app_module}.Captain do
   @moduledoc false
 
   @operator_default "http://reverb:4010"
+  @opencode_default "http://localhost:4096"
 
   def project_name do
     System.get_env("REVERB_PROJECT_NAME") || "Reverb Quickstart"
@@ -41,6 +42,10 @@ defmodule ${app_module}.Captain do
 
         :ok
     end
+  end
+
+  def opencode_url do
+    System.get_env("QUICKSTART_OPENCODE_URL") || @opencode_default
   end
 
   def list_tasks do
@@ -113,6 +118,7 @@ defmodule ${web_module}.CaptainController do
 
   defp index_html(conn, tasks, fetch_error) do
     project_name = Captain.project_name() |> escape_html()
+    opencode_url = Captain.opencode_url() |> escape_html()
     running = Enum.filter(tasks, &(&1["state"] in @running_states))
     queued = Enum.filter(tasks, &(&1["state"] in @queued_states))
     finished = Enum.filter(tasks, &(&1["state"] in @finished_states)) |> Enum.take(8)
@@ -218,7 +224,7 @@ defmodule ${web_module}.CaptainController do
             </div>
             <nav class="nav">
               <a href="/">Homepage</a>
-              <a href="http://localhost:4096" target="_blank" rel="noreferrer">Open OpenCode Auth UI</a>
+              <a href="#{opencode_url}" target="_blank" rel="noreferrer">Open OpenCode Auth UI</a>
             </nav>
           </div>
 

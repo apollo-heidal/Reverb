@@ -1,0 +1,9 @@
+.env.reverb
+.git
+app/_build
+app/deps
+app/tmp
+.reverb-src/_build
+.reverb-src/deps
+.reverb-src/tmp
+.reverb-src/plans

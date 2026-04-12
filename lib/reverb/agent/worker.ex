@@ -178,32 +178,19 @@ defmodule Reverb.Agent.Worker do
     }
   end
 
-  defp build_task_prompt(task, workspace_path) do
-    """
-    You are operating inside a coordinator-managed isolated workspace.
+  defp build_task_prompt(task, _workspace_path) do
+    case task.steering_notes do
+      notes when is_binary(notes) and notes != "" ->
+        """
+        #{task.body}
 
-    Workspace: #{workspace_path}
-    Task ID: #{task.id}
-    Subject: #{task.subject || "n/a"}
-    Feature ID: #{metadata_value(task, "feature_id") || "n/a"}
-    Expected Files: #{format_list(metadata_value(task, "expected_files"))}
-    Validation Commands: #{format_list(task_validation_commands(task) || default_validation_commands())}
+        Steering notes:
+        #{notes}
+        """
 
-    Requirements:
-    - Make changes only inside this workspace.
-    - Do not switch branches.
-    - Do not push or merge branches yourself.
-    - Keep output concise and action-oriented.
-
-    Task:
-    #{task.body}
-
-    Steering Notes:
-    #{task.steering_notes || "None"}
-
-    Task Metadata JSON:
-    #{Jason.encode!(task.metadata || %{})}
-    """
+      _ ->
+        task.body
+    end
   end
 
   defp commit_message(task) do

@@ -4,6 +4,7 @@ set -euo pipefail
 export MIX_ENV="${MIX_ENV:-prod}"
 export REVERB_DATABASE_URL="${REVERB_DATABASE_URL:-ecto://postgres:postgres@reverb-db/reverb_dev}"
 export REVERB_NODE_NAME="${REVERB_NODE_NAME:-reverb@reverb}"
+export REVERB_USE_SHORTNAME="${REVERB_USE_SHORTNAME:-false}"
 export REVERB_ERLANG_COOKIE="${REVERB_ERLANG_COOKIE:-reverb_cookie}"
 export REVERB_WORKSPACE_ROOT="${REVERB_WORKSPACE_ROOT:-/workspaces}"
 export REVERB_WORKSPACE_REPO_ROOT="${REVERB_WORKSPACE_REPO_ROOT:-/sandbox/app}"
@@ -14,6 +15,12 @@ export REVERB_OPENCODE_WEB_HOST="${REVERB_OPENCODE_WEB_HOST:-0.0.0.0}"
 export REVERB_OPENCODE_WEB_PORT="${REVERB_OPENCODE_WEB_PORT:-4096}"
 export REVERB_OPENCODE_WEB_WORKDIR="${REVERB_OPENCODE_WEB_WORKDIR:-$REVERB_WORKSPACE_REPO_ROOT}"
 export REVERB_WORKSPACE_WAIT_TIMEOUT_SECS="${REVERB_WORKSPACE_WAIT_TIMEOUT_SECS:-300}"
+
+node_name_flag="--name"
+
+if [[ "$REVERB_USE_SHORTNAME" == "true" ]]; then
+  node_name_flag="--sname"
+fi
 
 mkdir -p "$REVERB_WORKSPACE_ROOT"
 
@@ -66,7 +73,7 @@ if [[ "$REVERB_OPENCODE_WEB_ENABLED" == "true" ]]; then
 
   trap cleanup EXIT INT TERM
 
-  elixir --name "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt &
+  elixir "$node_name_flag" "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt &
   reverb_pid="$!"
 
   wait -n "$opencode_pid" "$reverb_pid"
@@ -77,4 +84,4 @@ if [[ "$REVERB_OPENCODE_WEB_ENABLED" == "true" ]]; then
   exit "$status"
 fi
 
-exec elixir --name "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt
+exec elixir "$node_name_flag" "$REVERB_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix run --no-halt

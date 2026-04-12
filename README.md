@@ -197,6 +197,12 @@ To run it from this repo locally:
 sh quickstart/bootstrap.sh
 ```
 
+The installer supports both `docker compose` and `podman compose`. Set
+`REVERB_CONTAINER_ENGINE=podman` if you want to force the Podman path.
+
+If `4000` or `4096` are already in use, set `QUICKSTART_HOST_APP_PORT` and
+`QUICKSTART_HOST_OPENCODE_PORT` before running the installer.
+
 The intended one-line remote form is:
 
 ```bash

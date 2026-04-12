@@ -57,14 +57,25 @@ defmodule Reverb.Agent.CLI.OpenCode do
 
   defp build_args(prompt, opts) do
     base_args = Keyword.get(opts, :args) || Keyword.get(opts, :agent_args) || @default_args
+    model = Keyword.get(opts, :model) || Keyword.get(opts, :agent_model)
 
     base_args
-    |> maybe_put_flag("--model", Keyword.get(opts, :model) || Keyword.get(opts, :agent_model))
+    |> maybe_put_flag("--model", normalize_model(model))
     |> maybe_put_flag("--session", Keyword.get(opts, :session))
     |> maybe_put_flag("--agent", Keyword.get(opts, :agent))
     |> maybe_put_flag("--variant", Keyword.get(opts, :variant))
     |> maybe_put_flag("--dir", Keyword.get(opts, :dir))
     |> Kernel.++([prompt])
+  end
+
+  defp normalize_model(nil), do: nil
+
+  # OpenCode expects provider-qualified models such as `openai/gpt-5.4`.
+  # If we only have a bare model id, fall back to the connected default.
+  defp normalize_model(model) do
+    model = to_string(model)
+
+    if String.contains?(model, "/"), do: model, else: nil
   end
 
   defp maybe_put_flag(args, _flag, nil), do: args

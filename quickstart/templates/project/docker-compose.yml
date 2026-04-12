@@ -1,6 +1,7 @@
 services:
   prod-db:
     image: postgres:16
+    hostname: prod-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -10,6 +11,7 @@ services:
 
   reverb-db:
     image: postgres:16
+    hostname: reverb-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -21,33 +23,40 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.app
+    hostname: prod
     env_file:
       - .env.reverb
     depends_on:
       - prod-db
+    security_opt:
+      - label=disable
     environment:
       MIX_ENV: dev
       PHX_SERVER: "true"
       PORT: "4000"
       PHX_HOST: localhost
       DATABASE_URL: ecto://postgres:postgres@prod-db/quickstart_dev
-      APP_NODE_NAME: prod@prod
+      APP_NODE_NAME: prod
+      APP_USE_SHORTNAME: "true"
       REVERB_MODE: emitter
       REVERB_OPERATOR_URL: http://reverb:4010
     ports:
-      - "4000:4000"
+      - "${QUICKSTART_HOST_APP_PORT:-4000}:4000"
     volumes:
-      - .:/workspace
+      - .:/workspace:Z,U
 
   reverb:
     build:
       context: ./.reverb-src
       dockerfile: docker/reverb.Dockerfile
+    hostname: reverb
     env_file:
       - .env.reverb
     depends_on:
       - prod
       - reverb-db
+    security_opt:
+      - label=disable
     environment:
       MIX_ENV: prod
       REVERB_MODE: receiver
@@ -55,7 +64,8 @@ services:
       REVERB_AGENT_ENABLED: "true"
       REVERB_DATABASE_URL: ecto://postgres:postgres@reverb-db/reverb_dev
       REVERB_POOL_SIZE: "5"
-      REVERB_NODE_NAME: reverb@reverb
+      REVERB_NODE_NAME: reverb
+      REVERB_USE_SHORTNAME: "true"
       REVERB_PROD_NODE: prod@prod
       REVERB_ALLOWED_NODES: prod@prod
       REVERB_AGENT_ADAPTER: opencode
@@ -65,16 +75,16 @@ services:
       REVERB_YOLO_MODE: "true"
       REVERB_SCHED_START_PAUSED: "true"
       REVERB_WORKSPACE_ROOT: /workspaces
-      REVERB_WORKSPACE_REPO_ROOT: /sandbox/app
-      REVERB_VALIDATION_COMMANDS: mix compile
+      REVERB_WORKSPACE_REPO_ROOT: /sandbox/workspace/app
+      REVERB_VALIDATION_COMMANDS: mix compile;;mix assets.deploy
       REVERB_OPENCODE_WEB_ENABLED: "true"
       REVERB_OPENCODE_WEB_HOST: 0.0.0.0
       REVERB_OPENCODE_WEB_PORT: "4096"
-      REVERB_OPENCODE_WEB_WORKDIR: /sandbox/app
+      REVERB_OPENCODE_WEB_WORKDIR: /sandbox/workspace/app
     ports:
-      - "4096:4096"
+      - "${QUICKSTART_HOST_OPENCODE_PORT:-4096}:4096"
     volumes:
-      - ./app:/sandbox/app
+      - .:/sandbox/workspace:Z,U
       - reverb_workspaces:/workspaces
       - opencode_data:/root/.local/share/opencode
       # Optional developer shortcut:
