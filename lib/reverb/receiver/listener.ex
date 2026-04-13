@@ -64,6 +64,8 @@ defmodule Reverb.Receiver.Listener do
               "[Reverb.Listener] Failed to connect to #{prod_node}, retrying in #{state.reconnect_interval_ms}ms"
             )
 
+            log_cookie_diagnostic(prod_node)
+
             ref = Process.send_after(self(), :connect, state.reconnect_interval_ms)
             {:noreply, %{state | connected: false, reconnect_ref: ref}}
 
@@ -121,5 +123,16 @@ defmodule Reverb.Receiver.Listener do
   defp cancel_reconnect(%{reconnect_ref: ref} = state) do
     Process.cancel_timer(ref)
     %{state | reconnect_ref: nil}
+  end
+
+  defp log_cookie_diagnostic(prod_node) do
+    local_cookie = Node.get_cookie()
+    Logger.warning("[Reverb.Listener] Local cookie: #{local_cookie}")
+
+    Logger.warning(
+      "[Reverb.Listener] If you see 'Invalid challenge reply' in Erlang logs, " <>
+        "the remote node #{prod_node} has a different cookie. " <>
+        "Ensure REVERB_ERLANG_COOKIE is identical in both containers."
+    )
   end
 end

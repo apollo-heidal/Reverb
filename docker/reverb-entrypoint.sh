@@ -6,6 +6,10 @@ export REVERB_DATABASE_URL="${REVERB_DATABASE_URL:-ecto://postgres:postgres@reve
 export REVERB_NODE_NAME="${REVERB_NODE_NAME:-reverb@reverb}"
 export REVERB_USE_SHORTNAME="${REVERB_USE_SHORTNAME:-false}"
 export REVERB_ERLANG_COOKIE="${REVERB_ERLANG_COOKIE:-reverb_cookie}"
+
+if [[ "$REVERB_ERLANG_COOKIE" == "reverb_cookie" ]]; then
+  echo "WARNING: using default Erlang cookie. Set REVERB_ERLANG_COOKIE in .env.reverb for production." >&2
+fi
 export REVERB_WORKSPACE_ROOT="${REVERB_WORKSPACE_ROOT:-/workspaces}"
 export REVERB_WORKSPACE_REPO_ROOT="${REVERB_WORKSPACE_REPO_ROOT:-/sandbox/app}"
 export REVERB_WORKSPACE_SOURCE_REF="${REVERB_WORKSPACE_SOURCE_REF:-HEAD}"
