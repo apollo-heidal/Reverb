@@ -81,7 +81,41 @@ cd "$app_root"
 mix deps.get
 mix ecto.create >/dev/null 2>&1 || true
 mix ecto.migrate
-mix run -e "${QUICKSTART_APP_MODULE}.Release.ensure_initial_admin_from_env()"
+mix run -e '
+app_module = System.fetch_env!("QUICKSTART_APP_MODULE")
+accounts = Module.concat([app_module, "Accounts"])
+user = Module.concat([app_module, "Accounts", "User"])
+email = String.trim(System.get_env("INITIAL_ADMIN_EMAIL") || "")
+password = String.trim(System.get_env("INITIAL_ADMIN_PASSWORD") || "")
+
+if email != "" and password != "" do
+  require Ash.Query
+
+  query = Ash.Query.filter(user, email == ^email)
+
+  case Ash.read_one(query, domain: accounts, authorize?: false) do
+    {:ok, nil} ->
+      attrs = %{
+        email: email,
+        password: password,
+        password_confirmation: password
+      }
+
+      changeset = Ash.Changeset.for_create(user, :register_with_password, attrs)
+
+      case Ash.create(changeset, domain: accounts, authorize?: false) do
+        {:ok, _user} -> :ok
+        {:error, error} -> raise "failed to create initial admin user: #{inspect(error)}"
+      end
+
+    {:ok, _user} ->
+      :ok
+
+    {:error, error} ->
+      raise "failed to load initial admin user: #{inspect(error)}"
+  end
+end
+'
 mix assets.deploy
 
 exec elixir "$node_name_flag" "$APP_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix phx.server

@@ -277,91 +277,33 @@ defmodule Mix.Tasks.Reverb.Install do
     """
   end
 
-  defp release_template(app, module_base, quickstart?) do
-    base =
-      """
-      defmodule #{module_base}.Release do
-        @moduledoc false
-        @app :#{app}
+  defp release_template(app, module_base, _quickstart?) do
+    """
+    defmodule #{module_base}.Release do
+      @moduledoc false
+      @app :#{app}
 
-        def migrate do
-          load_app()
+      def migrate do
+        load_app()
 
-          for repo <- repos() do
-            {:ok, _, _} =
-              Ecto.Migrator.with_repo(repo, fn repo ->
-                Ecto.Migrator.run(repo, :up, all: true)
-              end)
-          end
+        for repo <- repos() do
+          {:ok, _, _} =
+            Ecto.Migrator.with_repo(repo, fn repo ->
+              Ecto.Migrator.run(repo, :up, all: true)
+            end)
         end
+      end
 
-        defp repos do
-          Application.fetch_env!(@app, :ecto_repos)
-        end
+      defp repos do
+        Application.fetch_env!(@app, :ecto_repos)
+      end
 
-        defp load_app do
-          Application.ensure_all_started(:ssl)
-          Application.ensure_loaded(@app)
-        end
-      """
-
-    if quickstart? do
-      base <>
-        """
-
-          def seed_admin_user(email, password) when is_binary(email) and is_binary(password) do
-            load_app()
-
-            email = String.trim(email)
-
-            if email == "" or String.trim(password) == "" do
-              :ok
-            else
-              ensure_admin_user(email, password)
-            end
-          end
-
-          def ensure_initial_admin_from_env do
-            seed_admin_user(
-              System.get_env("INITIAL_ADMIN_EMAIL") || "",
-              System.get_env("INITIAL_ADMIN_PASSWORD") || ""
-            )
-          end
-
-          defp ensure_admin_user(email, password) do
-            alias #{module_base}.Accounts
-            alias #{module_base}.Accounts.User
-            require Ash.Query
-
-            query = Ash.Query.filter(User, email == ^email)
-
-            case Ash.read_one(query, domain: Accounts) do
-              {:ok, nil} ->
-                attrs = %{
-                  email: email,
-                  password: password,
-                  password_confirmation: password
-                }
-
-                changeset = Ash.Changeset.for_create(User, :register_with_password, attrs)
-
-                case Ash.create(changeset, domain: Accounts) do
-                  {:ok, _user} -> :ok
-                  {:error, error} -> raise "failed to create initial admin user: \#{inspect(error)}"
-                end
-
-              {:ok, _user} ->
-                :ok
-
-              {:error, error} ->
-                raise "failed to load initial admin user: \#{inspect(error)}"
-            end
-          end
-        end
-        """
-    else
-      base <> "\n      end\n"
+      defp load_app do
+        Application.ensure_all_started(:ssl)
+        Application.ensure_loaded(@app)
+      end
     end
+    """
   end
 
   defp control_template(app, module_base) do
