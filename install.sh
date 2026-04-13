@@ -17,8 +17,11 @@ else
   RESET=""
 fi
 
+prompt_tty_fd=""
+
 if [ ! -t 0 ] && [ -r /dev/tty ]; then
-  exec </dev/tty
+  exec 3</dev/tty
+  prompt_tty_fd="3"
 fi
 
 check() { printf "%b%s%b %s\n" "$GREEN" "✓" "$RESET" "$1"; }
@@ -26,6 +29,18 @@ warn() { printf "%b%s%b %s\n" "$YELLOW" "!" "$RESET" "$1"; }
 fail() { printf "%b%s%b %s\n" "$RED" "✗" "$RESET" "$1"; }
 info() { printf "%b%s%b %s\n" "$BLUE" ">" "$RESET" "$1"; }
 headline() { printf "\n%b%s%b\n" "$BOLD" "$1" "$RESET"; }
+
+prompt_read_into() {
+  __prompt_var="$1"
+
+  if [ -n "$prompt_tty_fd" ]; then
+    IFS= read -r __prompt_value <&3
+  else
+    IFS= read -r __prompt_value
+  fi
+
+  eval "$__prompt_var=\$__prompt_value"
+}
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -311,7 +326,7 @@ confirm_replacement_of_existing_app() {
   fi
 
   printf "%bProceed and replace the running app?%b [y/N]: " "$BOLD" "$RESET"
-  read -r replacement_choice
+  prompt_read_into replacement_choice
   replacement_choice="${replacement_choice:-n}"
 
   case "$(printf '%s' "$replacement_choice" | tr '[:upper:]' '[:lower:]')" in
@@ -353,7 +368,7 @@ resolve_host_port() {
   warn "$label port $preferred_port is already in use" >&2
   info "Check http://127.0.0.1:$preferred_port$probe_path to see what is already running there." >&2
   printf "%bIs that already your %s instance?%b [y/N]: " "$BOLD" "$label" "$RESET" >&2
-  read -r port_owner_choice
+  prompt_read_into port_owner_choice
   port_owner_choice="${port_owner_choice:-n}"
 
   case "$(printf '%s' "$port_owner_choice" | tr '[:upper:]' '[:lower:]')" in
@@ -395,7 +410,7 @@ wait_for_url() {
 
 existing_app_default="n"
 printf "%bInstall into an existing Phoenix app?%b [y/N]: " "$BOLD" "$RESET"
-read -r existing_app_choice
+prompt_read_into existing_app_choice
 existing_app_choice="${existing_app_choice:-$existing_app_default}"
 
 case "$(printf '%s' "$existing_app_choice" | tr '[:upper:]' '[:lower:]')" in
@@ -424,7 +439,7 @@ esac
 
 project_name_default="my-reverb-app"
 printf "%bProject name%b [%s]: " "$BOLD" "$RESET" "$project_name_default"
-read -r project_name
+prompt_read_into project_name
 project_name="${project_name:-$project_name_default}"
 project_slug="$(slugify "$project_name")"
 project_parent="$(pwd)"
@@ -458,7 +473,7 @@ confirm_replacement_of_existing_app "$project_name" "$project_slug" "$compose_pr
 
 printf "%s\n" "The initial admin email is only written into local quickstart config on this machine."
 printf "%bInitial admin email for admin login%b: " "$BOLD" "$RESET"
-read -r initial_admin_email
+prompt_read_into initial_admin_email
 
 case "$initial_admin_email" in
   *@*) ;;
@@ -597,7 +612,7 @@ printf "%s\n" "If you lose this password, recovery is more complex. See the READ
 
 while :; do
   printf "%bType WRITTEN after you have stored the admin password%b: " "$BOLD" "$RESET"
-  read -r password_confirmation
+  prompt_read_into password_confirmation
 
   if [ "$password_confirmation" = "WRITTEN" ]; then
     break
