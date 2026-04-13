@@ -114,6 +114,24 @@ if config_env() == :prod do
         value -> Keyword.put(overrides, :max_agents, String.to_integer(value))
       end
     end)
+    |> then(fn overrides ->
+      case split_env_list.(System.get_env("REVERB_FALLBACK_MODELS")) do
+        nil -> overrides
+        value -> Keyword.put(overrides, :fallback_models, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_FALLBACK_ADAPTERS") do
+        nil -> overrides
+        value ->
+          adapters =
+            value
+            |> String.split(",", trim: true)
+            |> Enum.map(&String.to_atom(String.trim(&1)))
+
+          Keyword.put(overrides, :fallback_adapters, adapters)
+      end
+    end)
 
   if agent_overrides != [] do
     config :reverb, Reverb.Agent, agent_overrides

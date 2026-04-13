@@ -117,6 +117,7 @@ defmodule Reverb.Agent.Worker do
       model: Map.get(config, :agent_model),
       cwd: cwd,
       timeout_ms: config.task_timeout_ms,
+      fallback: true,
       env: [
         {"HOME", System.get_env("HOME") || "/tmp"},
         {"PATH", System.get_env("PATH") || "/usr/bin:/bin"}

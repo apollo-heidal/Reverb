@@ -29,6 +29,8 @@ config :reverb, Reverb.Agent,
   agent_args: ["run", "--format", "json", "--dangerously-skip-permissions"],
   agent_adapter: :opencode,
   agent_model: "gpt-5.4",
+  fallback_models: [],
+  fallback_adapters: [],
   project_root: nil,
   rotation_tasks: :default
 

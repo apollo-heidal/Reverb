@@ -54,6 +54,10 @@ defmodule Reverb.Operator.Router do
     send_json(conn, 200, %{result: Reverb.resume()})
   end
 
+  get "/api/agent/pool" do
+    send_json(conn, 200, %{pool: Reverb.Agent.Pool.status()})
+  end
+
   match _ do
     send_json(conn, 404, %{error: "not_found"})
   end

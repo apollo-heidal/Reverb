@@ -40,7 +40,8 @@ defmodule Reverb.Application do
     [
       pubsub_child_spec(Reverb.LocalPubSub),
       Reverb.Runtime,
-      Reverb.Claims
+      Reverb.Claims,
+      Reverb.Agent.Pool
     ] ++ repo_children
   end
 
