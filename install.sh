@@ -19,9 +19,10 @@ fi
 
 prompt_tty_fd=""
 
-if [ ! -t 0 ] && [ -r /dev/tty ]; then
-  exec 3</dev/tty
-  prompt_tty_fd="3"
+if [ ! -t 0 ]; then
+  if { exec 3</dev/tty; } 2>/dev/null; then
+    prompt_tty_fd="3"
+  fi
 fi
 
 check() { printf "%b%s%b %s\n" "$GREEN" "✓" "$RESET" "$1"; }
