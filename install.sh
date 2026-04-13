@@ -98,14 +98,22 @@ configure_container_engine() {
     return
   fi
 
-  if command -v docker >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     container_engine="docker"
     return
   fi
 
-  if command -v podman >/dev/null 2>&1; then
+  if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
     container_engine="podman"
     return
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    warn "Docker is installed but its daemon is not reachable; skipping it"
+  fi
+
+  if command -v podman >/dev/null 2>&1; then
+    warn "Podman is installed but not currently usable"
   fi
 
   fail "Missing required container engine: docker or podman"
@@ -443,17 +451,13 @@ printf "%bProject name%b [%s]: " "$BOLD" "$RESET" "$project_name_default"
 prompt_read_into project_name
 project_name="${project_name:-$project_name_default}"
 project_slug="$(slugify "$project_name")"
-project_parent="$(pwd)"
+project_parent="$(pwd)/reverb-apps"
 
-if [ -n "$script_dir" ] && [ -f "$script_dir/mix.exs" ] && [ -f "$script_dir/docker/quickstart-compose.yml" ]; then
-  if [ "$(basename "$script_dir")" = "reverb" ] && [ "$(basename "$(dirname "$script_dir")")" = "reverb-apps" ]; then
-    project_parent="$(dirname "$script_dir")"
-  else
-    project_parent="$(dirname "$script_dir")/reverb-apps"
-  fi
-
-  info "Local Reverb checkout detected; quickstart apps will be created under $project_parent"
+if [ -n "$script_dir" ] && [ -f "$script_dir/mix.exs" ] && [ -f "$script_dir/docker/quickstart-compose.yml" ] && [ "$(basename "$script_dir")" = "reverb" ] && [ "$(basename "$(dirname "$script_dir")")" = "reverb-apps" ]; then
+  project_parent="$(dirname "$script_dir")"
 fi
+
+info "Quickstart apps will be created under $project_parent"
 
 if [ -z "$project_slug" ]; then
   fail "Could not derive a project slug from '$project_name'."
@@ -541,8 +545,15 @@ if [ -n "$source_root" ] && [ "$(basename "$project_parent")" = "reverb-apps" ];
   mkdir -p "$project_parent"
 
   if [ ! -e "$project_parent/reverb" ]; then
-    ln -s "$source_root" "$project_parent/reverb"
-    info "Linked local checkout at $project_parent/reverb"
+    if [ -n "$script_dir" ] && [ "$source_root" = "$script_dir" ]; then
+      ln -s "$source_root" "$project_parent/reverb"
+      info "Linked local checkout at $project_parent/reverb"
+    else
+      mkdir -p "$project_parent/reverb"
+      set -- --exclude='.git' --exclude='_build' --exclude='deps' --exclude='tmp' --exclude='plans' --exclude='quickstart'
+      (cd "$source_root" && tar "$@" -cf - .) | (cd "$project_parent/reverb" && tar -xf -)
+      info "Cached Reverb source at $project_parent/reverb"
+    fi
   fi
 fi
 
