@@ -10,7 +10,7 @@ defmodule Reverb.Agent.Loop do
   use GenServer
   require Logger
 
-  alias Reverb.{Claims, Runtime, Tasks}
+  alias Reverb.{Claims, Runtime, Runs, Tasks}
   alias Reverb.Agent.Worker
 
   @default_config %{
@@ -416,6 +416,20 @@ defmodule Reverb.Agent.Loop do
 
   defp fail_worker(agent_id, worker, reason, state) do
     if task = Tasks.get_task(worker.task_id) do
+      if current_run_id = task.current_run_id do
+        if run = Runs.get_run(current_run_id) do
+          _ =
+            Runs.mark_finished(run, :failed, %{
+              last_error: reason,
+              metadata:
+                Map.merge(run.metadata || %{}, %{
+                  "failure_class" => "loop_failure",
+                  "last_error" => reason
+                })
+            })
+        end
+      end
+
       _ = Tasks.mark_failed(task, reason, %{assigned_agent: agent_id})
       _ = Claims.release(Tasks.subject_for(task))
     end
