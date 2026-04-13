@@ -60,6 +60,7 @@ services:
   reverb:
     image: __REVERB_IMAGE__
     hostname: reverb
+    restart: unless-stopped
     labels:
       dev.reverb.quickstart.managed: "true"
       dev.reverb.quickstart.app: "__QUICKSTART_APP_SLUG__"
