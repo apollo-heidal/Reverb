@@ -14,11 +14,11 @@ defmodule ReverbQuickstartTemplate.Captain do
 
   def admin?(nil), do: false
 
-  def admin?(%{email: email}) when is_binary(email) do
-    case admin_email() do
-      nil -> false
-      value -> String.trim(value) != "" and email == String.trim(value)
-    end
+  def admin?(%{email: email}) do
+    admin_email = admin_email() |> normalize_email()
+    user_email = normalize_email(email)
+
+    admin_email != nil and user_email != nil and user_email == admin_email
   end
 
   def admin?(_user), do: false
@@ -31,16 +31,32 @@ defmodule ReverbQuickstartTemplate.Captain do
         {:error, :blank}
 
       true ->
-        Reverb.emit(:manual, prompt,
-          source: "Captain UI",
+        payload = %{
+          body: prompt,
           metadata: %{
-            "source_kind" => "captain",
-            "ui_source" => "captain",
-            "subject" => summarize(prompt)
+            source_kind: "captain",
+            ui_source: "captain",
+            subject: summarize(prompt)
           }
-        )
+        }
 
-        :ok
+        case Jason.encode(payload) do
+          {:ok, body} ->
+            url = operator_url() <> "/api/tasks/manual"
+            :inets.start()
+
+            headers = [{~c"content-type", ~c"application/json"}]
+            request = {String.to_charlist(url), headers, ~c"application/json", body}
+
+            case :httpc.request(:post, request, [], body_format: :binary) do
+              {:ok, {{_, status, _}, _headers, _body}} when status in [200, 201] -> :ok
+              {:ok, {{_, status, _}, _headers, _body}} -> {:error, "Reverb operator returned HTTP #{status}."}
+              {:error, reason} -> {:error, "Could not reach Reverb (#{inspect(reason)})."}
+            end
+
+          {:error, _} ->
+            {:error, "Could not encode the captain request."}
+        end
     end
   end
 
@@ -78,5 +94,17 @@ defmodule ReverbQuickstartTemplate.Captain do
 
   defp operator_url do
     System.get_env("REVERB_OPERATOR_URL") || @operator_default
+  end
+
+  defp normalize_email(nil), do: nil
+
+  defp normalize_email(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
   end
 end

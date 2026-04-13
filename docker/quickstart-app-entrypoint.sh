@@ -43,11 +43,25 @@ mix run -e '
 app_module = System.fetch_env!("QUICKSTART_APP_MODULE")
 accounts = Module.concat([app_module, "Accounts"])
 user = Module.concat([app_module, "Accounts", "User"])
+repo = Module.concat([app_module, "Repo"])
 email = String.trim(System.get_env("INITIAL_ADMIN_EMAIL") || "")
 password = String.trim(System.get_env("INITIAL_ADMIN_PASSWORD") || "")
 
 if email != "" and password != "" do
+  import Ecto.Query
   require Ash.Query
+
+  sync_admin = fn ->
+    hashed_password = Bcrypt.hash_pwd_salt(password)
+
+    repo.update_all(
+      from(u in user, where: u.email == ^email),
+      set: [
+        hashed_password: hashed_password,
+        confirmed_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+      ]
+    )
+  end
 
   query = Ash.Query.filter(user, email == ^email)
 
@@ -62,12 +76,12 @@ if email != "" and password != "" do
       changeset = Ash.Changeset.for_create(user, :register_with_password, attrs)
 
       case Ash.create(changeset, domain: accounts, authorize?: false) do
-        {:ok, _user} -> :ok
+        {:ok, _user} -> sync_admin.()
         {:error, error} -> raise "failed to create initial admin user: #{inspect(error)}"
       end
 
     {:ok, _user} ->
-      :ok
+      sync_admin.()
 
     {:error, error} ->
       raise "failed to load initial admin user: #{inspect(error)}"

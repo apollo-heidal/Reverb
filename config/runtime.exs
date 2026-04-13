@@ -190,6 +190,14 @@ if config_env() == :prod do
         value -> Keyword.put(overrides, :port, String.to_integer(value))
       end
     end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_OPERATOR_IP") do
+        nil -> overrides
+        "0.0.0.0" -> Keyword.put(overrides, :ip, {0, 0, 0, 0})
+        "127.0.0.1" -> Keyword.put(overrides, :ip, {127, 0, 0, 1})
+        _ -> overrides
+      end
+    end)
 
   if operator_overrides != [] do
     config :reverb, Reverb.Operator, operator_overrides

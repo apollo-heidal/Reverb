@@ -22,6 +22,25 @@ defmodule Reverb.Operator.Router do
     send_json(conn, 200, %{tasks: Reverb.tasks(opts)})
   end
 
+  post "/api/tasks/manual" do
+    with %{"body" => body} when is_binary(body) <- conn.body_params,
+         attrs <- %{
+           body: body,
+           source_kind: "captain",
+           category: "manual",
+           metadata: Map.get(conn.body_params, "metadata", %{})
+         },
+         {:ok, task} <- Reverb.create_manual_task(attrs) do
+      send_json(conn, 201, %{task: task})
+    else
+      %{} ->
+        send_json(conn, 422, %{error: "body is required"})
+
+      {:error, error} ->
+        send_json(conn, 422, %{error: inspect(error)})
+    end
+  end
+
   get "/api/runs" do
     opts = keyword_params(conn.params, [:limit, :task_id, :status])
     send_json(conn, 200, %{runs: Reverb.runs(opts)})
