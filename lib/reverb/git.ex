@@ -166,6 +166,14 @@ defmodule Reverb.Git do
     end
   end
 
+  def changed_files_against_base(branch) when is_binary(branch) do
+    with repo_root when is_binary(repo_root) <- repo_root() || {:error, :repo_root_not_configured},
+         base_branch when is_binary(base_branch) <- base_branch(),
+         {:ok, output} <- run_git(repo_root, ["diff", "--name-only", "#{base_branch}...#{branch}"]) do
+      {:ok, output |> String.split("\n", trim: true) |> Enum.uniq()}
+    end
+  end
+
   def open_or_update_pr(branch, title, body) when is_binary(branch) do
     with :ok <- ensure_remote_push_enabled(),
          true <- System.find_executable("gh") != nil || {:error, :gh_not_available},

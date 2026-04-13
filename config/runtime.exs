@@ -195,6 +195,31 @@ if config_env() == :prod do
     config :reverb, Reverb.Operator, operator_overrides
   end
 
+  prod_control_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_CONTROL_MODULE") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :module, value |> String.split(".") |> Module.concat())
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_CONTROL_TIMEOUT_MS") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :timeout_ms, String.to_integer(value))
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_CONTROL_RETRY_MS") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :retry_ms, String.to_integer(value))
+      end
+    end)
+
+  if prod_control_overrides != [] do
+    config :reverb, Reverb.ProdControl, prod_control_overrides
+  end
+
   if commands = split_env_list.(System.get_env("REVERB_VALIDATION_COMMANDS")) do
     config :reverb, Reverb.Validation, commands: commands
   end

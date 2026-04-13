@@ -131,6 +131,11 @@ Set `config :reverb, yolo_mode: true` if you want Reverb to merge each
 validated task branch straight back into the repo base branch and then
 best-effort push `origin/<base>` when that remote exists.
 
+When YOLO mode is enabled, Reverb can also use a fixed BEAM RPC control module
+inside the prod app for release migrations and restarts. Distributed Erlang is
+inherently duplex transport, but Reverb itself will not attempt mutating prod
+RPC when `config :reverb, yolo_mode: false`.
+
 ## Public APIs
 
 - `Reverb.emit/3`
@@ -187,14 +192,15 @@ mix test
 
 ## Quickstart Smoke Test
 
-The canonical end-to-end smoke path is now the generator-driven quickstart. It
-creates a fresh Phoenix app with `mix phx.new`, installs Reverb into that
-generated app, and layers on the `/captain` steering UI.
+The canonical end-to-end smoke path is the root installer. It creates a fresh
+Phoenix app with `mix phx.new`, installs AshAuthentication for simple
+email/password auth, installs Reverb, seeds an initial admin account, and
+enables the `/captain` steering UI for that admin user.
 
 To run it from this repo locally:
 
 ```bash
-sh quickstart/bootstrap.sh
+sh install.sh
 ```
 
 The installer supports both `docker compose` and `podman compose`. Set
@@ -206,7 +212,7 @@ If `4000` or `4096` are already in use, set `QUICKSTART_HOST_APP_PORT` and
 The intended one-line remote form is:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/apollo-heidal/reverb/main/quickstart/bootstrap.sh | sh
+curl -fsSL https://raw.githubusercontent.com/apollo-heidal/reverb/main/install.sh | sh
 ```
 
 The quickstart stack exposes:
@@ -216,6 +222,15 @@ The quickstart stack exposes:
 - a `prod` app container generated from `phx.new`
 - a standalone `reverb` coordinator container
 - separate Postgres containers for the app and Reverb state
+
+The installer prompts for an initial admin email, then generates a very strong
+password and stores it in `.env.reverb`. Save that password securely. Recovery
+emails will not work until you configure an email relay service for the app,
+and Reverb quickstart does not set that up for you.
+
+If you lose the generated password, recovery is more manual: inspect the
+persisted app env used by the prod container and read `INITIAL_ADMIN_PASSWORD`
+from there.
 
 For real provider-backed runs, put agent auth only in a coordinator env file
 such as `.env.reverb` and load it into the Reverb container with `env_file`.
@@ -233,12 +248,20 @@ the same auth session.
 
 During quickstart setup, connect a provider through `localhost:4096`, but do
 not steer the app from OpenCode web. Use `localhost:4000/captain` for product
-requests. Captain tasks can queue freely, and Reverb schedules them before
-automated log-derived work.
+requests. In OpenCode web, click the gear in the lower-left corner and open the
+Providers tab to connect a provider. Captain tasks can queue freely, and Reverb
+schedules them before automated log-derived work.
 
 ## Installation Scaffold
 
-To generate starter files in another Elixir project, run:
+The shell installer supports both flows:
+
+- New app quickstart: `sh install.sh`
+- Existing Phoenix app: run `sh install.sh` from the app root, choose the
+  existing-app path, and make sure the Reverb dependency is already present so
+  `mix reverb.install` is available.
+
+To generate starter files in another Elixir project directly, run:
 
 ```bash
 mix reverb.install --pubsub MyApp.PubSub --topic-hash my-app-prod
@@ -246,6 +269,13 @@ mix reverb.install --pubsub MyApp.PubSub --topic-hash my-app-prod
 
 Add `--patch-config` if you want the installer to append
 `import_config "reverb.exs"` to `config/config.exs` automatically.
+
+Add `--quickstart --captain` only for the fresh quickstart app path after
+AshAuthentication has already been installed.
+
+Captain is a core Reverb surface, but it should stay authenticated. In existing
+apps, do not mount `/captain` unless you place it behind your own authenticated
+scope first.
 
 ## Operator Runbook
 

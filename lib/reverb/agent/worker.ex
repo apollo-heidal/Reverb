@@ -20,20 +20,22 @@ defmodule Reverb.Agent.Worker do
                  }),
                {:ok, run} <- Runs.mark_running(run),
                {:ok, result} <- execute_agent(task, slot.path, config),
+               {:ok, changed_files} <- changed_files(slot.branch),
                :ok <- Git.commit_all(slot.path, commit_message(task)),
-               {:ok, run} <-
-                 Runs.mark_validating(run, %{
-                   agent_output: result.output,
-                   metadata: run_metadata(run, %{
+                {:ok, run} <-
+                  Runs.mark_validating(run, %{
+                    agent_output: result.output,
+                    metadata: run_metadata(run, %{
                      "agent_session_id" => Map.get(result, :session_id),
                      "agent_command" => result.command,
                      "agent_args" => result.args,
-                     "agent_exit_code" => result.exit_code
-                   })
-                 }),
-               {:ok, task} <- Tasks.mark_validating(task),
-               {:ok, validation_output} <- Validation.run(slot.path, validation_opts(task)),
-               {:ok, outcome} <- promotion_outcome(task, slot.branch),
+                      "agent_exit_code" => result.exit_code,
+                      "changed_files" => changed_files
+                    })
+                  }),
+                {:ok, task} <- Tasks.mark_validating(task),
+                {:ok, validation_output} <- Validation.run(slot.path, validation_opts(task)),
+                {:ok, outcome} <- promotion_outcome(task, slot.branch, changed_files),
                {:ok, run} <-
                  Runs.mark_finished(run, :succeeded, %{
                    validation_output: validation_output,
@@ -254,30 +256,43 @@ defmodule Reverb.Agent.Worker do
     Map.merge(run.metadata || %{}, Map.new(attrs, fn {key, value} -> {to_string(key), value} end))
   end
 
-  defp promotion_outcome(task, branch) do
+  defp changed_files(branch) do
+    case Git.changed_files_against_base(branch) do
+      {:ok, files} -> {:ok, files}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp promotion_outcome(task, branch, changed_files) do
     if Git.yolo_mode?() do
-      with {:ok, %{base_branch: base_branch, pushed: pushed?}} <- Git.merge_branch_into_base(branch) do
+      plan = Reverb.ProdControl.plan(changed_files)
+
+      with {:ok, %{base_branch: base_branch, pushed: pushed?}} <- Git.merge_branch_into_base(branch),
+           {:ok, _plan} <- Reverb.ProdControl.apply_plan(plan) do
         {:ok,
          %{
-           action: :mark_stable,
-           done_note: yolo_success_note(base_branch, pushed?),
-           pr_url: nil,
-           remote_ref: base_branch,
-           remote_status: if(pushed?, do: :merged, else: :local_only)
-         }}
+            action: :mark_stable,
+            done_note: yolo_success_note(base_branch, pushed?, plan),
+            pr_url: nil,
+            remote_ref: base_branch,
+            remote_status: if(pushed?, do: :merged, else: :local_only)
+          }}
       end
     else
       Promotion.prepare(task)
     end
   end
 
-  defp yolo_success_note(base_branch, true),
-    do: "Validated locally, merged into #{base_branch}, and pushed to origin/#{base_branch}"
+  defp yolo_success_note(base_branch, true, plan),
+    do:
+      "Validated locally, merged into #{base_branch}, pushed to origin/#{base_branch}, and applied prod actions#{plan_suffix(plan)}"
 
-  defp yolo_success_note(base_branch, false),
-    do: "Validated locally and merged into #{base_branch}"
+  defp yolo_success_note(base_branch, false, plan),
+    do: "Validated locally, merged into #{base_branch}, and applied prod actions#{plan_suffix(plan)}"
 
-  defp format_list(values) when is_list(values), do: Enum.join(values, ", ")
-  defp format_list(nil), do: "n/a"
-  defp format_list(value), do: to_string(value)
+  defp plan_suffix(%Reverb.ProdControl.Plan{migrate?: false, restart?: false}), do: " (none required)"
+  defp plan_suffix(%Reverb.ProdControl.Plan{migrate?: true, restart?: true}), do: " (migrate + restart)"
+  defp plan_suffix(%Reverb.ProdControl.Plan{migrate?: false, restart?: true}), do: " (restart)"
+  defp plan_suffix(%Reverb.ProdControl.Plan{migrate?: true, restart?: false}), do: " (migrate)"
+
 end

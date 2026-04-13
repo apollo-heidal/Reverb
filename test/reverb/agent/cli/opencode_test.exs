@@ -17,7 +17,7 @@ defmodule Reverb.Agent.CLI.OpenCodeTest do
     assert result.provider == :opencode
     assert result.output == "implemented the feature"
     assert result.session_id == "ses_test_123"
-    assert result.args == ["--model", "gpt-5.4", "implement the feature"]
+    assert result.args == ["implement the feature"]
   end
 
   test "infers opencode adapter from command basename" do

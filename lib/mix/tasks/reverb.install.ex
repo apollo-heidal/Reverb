@@ -1,38 +1,49 @@
 defmodule Mix.Tasks.Reverb.Install do
   use Mix.Task
 
-  @shortdoc "Generates starter Reverb integration files for the current project"
+  @shortdoc "Generates Reverb integration files for the current project"
 
   @moduledoc """
-  Generates starter files to connect the current Elixir project to a standalone
-  Reverb coordinator.
+  Generates starter files to connect the current Elixir project to Reverb.
 
       mix reverb.install
       mix reverb.install --pubsub MyApp.PubSub --topic-hash my-app-prod
+      mix reverb.install --quickstart --captain
 
-  This task intentionally generates additive files and avoids rewriting
-  existing config files aggressively.
+  The quickstart mode generates additional app-side files that assume a fresh
+  Phoenix app with AshAuthentication already installed.
   """
 
-  @switches [force: :boolean, patch_config: :boolean, pubsub: :string, topic_hash: :string]
+  @switches [
+    force: :boolean,
+    patch_config: :boolean,
+    pubsub: :string,
+    topic_hash: :string,
+    quickstart: :boolean,
+    captain: :boolean
+  ]
 
   @impl true
   def run(args) do
     {opts, _argv, _invalid} = OptionParser.parse(args, strict: @switches)
+
     app = Mix.Project.config()[:app] |> to_string()
     module_base = Macro.camelize(app)
     pubsub = opts[:pubsub] || "#{module_base}.PubSub"
     topic_hash = opts[:topic_hash] || "#{app}-prod"
     force? = opts[:force] || false
     patch_config? = opts[:patch_config] || false
+    quickstart? = opts[:quickstart] || false
+    captain? = opts[:captain] || false
 
-    targets = [
-      {"config/reverb.exs", config_template(pubsub, topic_hash)},
-      {".env.reverb", env_template(app, topic_hash)},
-      {".reverb.cookie.example", cookie_template()},
-      {"docker-compose.reverb.yml", compose_template(app)},
-      {"README.reverb.md", readme_template(app, pubsub, topic_hash)}
-    ]
+    targets = common_targets(app, module_base, pubsub, topic_hash, quickstart?, captain?)
+
+    targets =
+      if quickstart? do
+        targets
+      else
+        targets ++ standalone_targets(app, module_base, pubsub, topic_hash)
+      end
 
     Enum.each(targets, fn {path, contents} ->
       write_file(path, contents, force?)
@@ -42,15 +53,38 @@ defmodule Mix.Tasks.Reverb.Install do
       patch_main_config!()
     end
 
-    Mix.shell().info("""
+    if captain? do
+      patch_router_for_captain!()
+    end
 
-    Reverb starter files generated.
+    Mix.shell().info(summary_message(quickstart?, captain?))
+  end
 
-    Next steps:
-      1. Add `import_config "reverb.exs"` to your main config if desired.
-      2. Set a shared cookie and agent auth in `.env.reverb`.
-      3. Boot the standalone coordinator with `docker compose -f docker-compose.reverb.yml up`.
-    """)
+  defp common_targets(app, module_base, pubsub, topic_hash, quickstart?, captain?) do
+    targets = [
+      {"config/reverb.exs", config_template(pubsub, topic_hash, module_base, captain?)},
+      {release_path(app), release_template(app, module_base, quickstart?)},
+      {control_path(app), control_template(app, module_base)}
+    ]
+
+    if captain? do
+      targets ++
+        [
+          {captain_path(app), captain_template(module_base)},
+          {captain_controller_path(app), captain_controller_template(module_base)}
+        ]
+    else
+      targets
+    end
+  end
+
+  defp standalone_targets(app, module_base, pubsub, topic_hash) do
+    [
+      {".env.reverb", env_template(module_base, topic_hash)},
+      {".reverb.cookie.example", cookie_template()},
+      {"docker-compose.reverb.yml", compose_template(app)},
+      {"README.reverb.md", readme_template(app, pubsub, topic_hash)}
+    ]
   end
 
   defp patch_main_config! do
@@ -70,6 +104,35 @@ defmodule Mix.Tasks.Reverb.Install do
     end
   end
 
+  defp patch_router_for_captain! do
+    case Path.wildcard("lib/*_web/router.ex") do
+      [path | _] ->
+        contents = File.read!(path)
+
+        if String.contains?(contents, ~s(get "/captain", CaptainController, :index)) do
+          Mix.shell().info("skip #{path} (captain routes already present)")
+        else
+          updated =
+            String.replace(
+              contents,
+              ~r/get\s+"\/",\s+PageController,\s+:home\n/,
+              "get \"/\", PageController, :home\n    get \"/captain\", CaptainController, :index\n    post \"/captain\", CaptainController, :create\n",
+              global: false
+            )
+
+          if updated == contents do
+            Mix.shell().info("skip #{path} (could not place captain route automatically)")
+          else
+            File.write!(path, updated)
+            Mix.shell().info("patched #{path} with /captain routes")
+          end
+        end
+
+      _ ->
+        Mix.shell().info("skip router patch (could not find lib/*_web/router.ex)")
+    end
+  end
+
   defp write_file(path, contents, force?) do
     if File.exists?(path) and not force? do
       Mix.shell().info("skip #{path} (already exists, use --force to overwrite)")
@@ -80,7 +143,7 @@ defmodule Mix.Tasks.Reverb.Install do
     end
   end
 
-  defp config_template(pubsub, topic_hash) do
+  defp config_template(pubsub, topic_hash, module_base, captain?) do
     """
     import Config
 
@@ -99,6 +162,12 @@ defmodule Mix.Tasks.Reverb.Install do
         "mix test"
       ]
 
+    config :reverb, Reverb.ProdControl,
+      module: #{module_base}.Reverb.Control
+
+    config :reverb, Reverb.Captain,
+      enabled: #{captain?}
+
     config :reverb, Reverb.Git,
       remote_enabled: false,
       push_enabled: false,
@@ -107,10 +176,10 @@ defmodule Mix.Tasks.Reverb.Install do
     """
   end
 
-  defp env_template(app, topic_hash) do
+  defp env_template(module_base, topic_hash) do
     """
     REVERB_TOPIC_HASH=#{topic_hash}
-    REVERB_PUBSUB_NAME=#{Macro.camelize(app)}.PubSub
+    REVERB_PUBSUB_NAME=#{module_base}.PubSub
     REVERB_ERLANG_COOKIE=replace-me-with-a-shared-cookie
     REVERB_AGENT_ADAPTER=opencode
     REVERB_AGENT_COMMAND=opencode
@@ -119,6 +188,7 @@ defmodule Mix.Tasks.Reverb.Install do
     REVERB_GIT_AUTO_PROMOTE=false
     REVERB_OPERATOR_ENABLED=true
     REVERB_OPERATOR_PORT=4010
+    REVERB_CONTROL_MODULE=#{module_base}.Reverb.Control
 
     # Provider and agent auth examples. Keep secrets only in this env file.
     OPENCODE_API_KEY=
@@ -182,6 +252,12 @@ defmodule Mix.Tasks.Reverb.Install do
     - Cookie source: `.reverb.cookie.example`
     - Coordinator env file: `.env.reverb`
 
+    ## Captain
+
+    The `/captain` surface is intentionally not auto-mounted for existing apps.
+    If you enable it later, place it behind your application's authenticated
+    scope. Reverb will not add an unauthenticated management route for you.
+
     ## Safe Defaults
 
     - Remote push disabled
@@ -192,30 +268,538 @@ defmodule Mix.Tasks.Reverb.Install do
     - Coordinator expected to run separately from the app
     - Workspace writes isolated to `/workspaces`
 
-    ## Agent Auth
+    ## Prod Control
 
-    Put provider keys only in `.env.reverb`, for example:
-
-    - `OPENCODE_API_KEY`
-    - `OPENAI_API_KEY`
-    - `ANTHROPIC_API_KEY`
-    - `GEMINI_API_KEY`
-    - `GH_TOKEN`
-
-    The generated compose file loads `.env.reverb` with `env_file` so these keys
-    are available to the coordinator container without hardcoding them into the
-    compose YAML.
-
-    If you authenticate OpenCode through the TUI using ChatGPT Plus/Pro instead
-    of an API key, OpenCode stores credentials in `~/.local/share/opencode/auth.json`.
-    Mount that directory into the coordinator container at
-    `/root/.local/share/opencode` so the in-container `opencode` process can reuse
-    the same login.
-
-    ## Optional Rewrite Path
-
-    Run `mix reverb.install --patch-config` if you want the installer to append
-    `import_config "reverb.exs"` to your main `config/config.exs` automatically.
+    Reverb can generate a fixed BEAM RPC control module for release migrations
+    and app restarts. The transport is inherently duplex because distributed
+    Erlang is duplex, but Reverb itself will not attempt mutating prod RPC when
+    `config :reverb, yolo_mode: false`.
     """
   end
+
+  defp release_template(app, module_base, quickstart?) do
+    base =
+      """
+      defmodule #{module_base}.Release do
+        @moduledoc false
+        @app :#{app}
+
+        def migrate do
+          load_app()
+
+          for repo <- repos() do
+            {:ok, _, _} =
+              Ecto.Migrator.with_repo(repo, fn repo ->
+                Ecto.Migrator.run(repo, :up, all: true)
+              end)
+          end
+        end
+
+        defp repos do
+          Application.fetch_env!(@app, :ecto_repos)
+        end
+
+        defp load_app do
+          Application.ensure_all_started(:ssl)
+          Application.ensure_loaded(@app)
+        end
+      """
+
+    if quickstart? do
+      base <>
+        """
+
+          def seed_admin_user(email, password) when is_binary(email) and is_binary(password) do
+            load_app()
+
+            email = String.trim(email)
+
+            if email == "" or String.trim(password) == "" do
+              :ok
+            else
+              ensure_admin_user(email, password)
+            end
+          end
+
+          def ensure_initial_admin_from_env do
+            seed_admin_user(
+              System.get_env("INITIAL_ADMIN_EMAIL") || "",
+              System.get_env("INITIAL_ADMIN_PASSWORD") || ""
+            )
+          end
+
+          defp ensure_admin_user(email, password) do
+            alias #{module_base}.Accounts
+            alias #{module_base}.Accounts.User
+            require Ash.Query
+
+            query = Ash.Query.filter(User, email == ^email)
+
+            case Ash.read_one(query, domain: Accounts) do
+              {:ok, nil} ->
+                attrs = %{
+                  email: email,
+                  password: password,
+                  password_confirmation: password
+                }
+
+                changeset = Ash.Changeset.for_create(User, :register_with_password, attrs)
+
+                case Ash.create(changeset, domain: Accounts) do
+                  {:ok, _user} -> :ok
+                  {:error, error} -> raise "failed to create initial admin user: \#{inspect(error)}"
+                end
+
+              {:ok, _user} ->
+                :ok
+
+              {:error, error} ->
+                raise "failed to load initial admin user: \#{inspect(error)}"
+            end
+          end
+        end
+        """
+    else
+      base <> "\n      end\n"
+    end
+  end
+
+  defp control_template(app, module_base) do
+    """
+    defmodule #{module_base}.Reverb.Control do
+      @moduledoc false
+      @app :#{app}
+
+      def status do
+        %{
+          app: @app,
+          node: Node.self(),
+          yolo_mode: Application.get_env(:reverb, :yolo_mode, false),
+          time: DateTime.utc_now()
+        }
+      end
+
+      def migrate do
+        if Application.get_env(:reverb, :yolo_mode, false) do
+          #{module_base}.Release.migrate()
+          :ok
+        else
+          {:error, :disabled}
+        end
+      end
+
+      def restart_app do
+        if Application.get_env(:reverb, :yolo_mode, false) do
+          spawn(fn ->
+            Process.sleep(250)
+            System.stop(0)
+          end)
+
+          :ok
+        else
+          {:error, :disabled}
+        end
+      end
+    end
+    """
+  end
+
+  defp captain_template(module_base) do
+    """
+    defmodule #{module_base}.Captain do
+      @moduledoc false
+
+      @operator_default "http://reverb:4010"
+      @opencode_default "http://localhost:4096"
+
+      def project_name do
+        System.get_env("REVERB_PROJECT_NAME") || "Reverb Quickstart"
+      end
+
+      def admin_email do
+        System.get_env("INITIAL_ADMIN_EMAIL")
+      end
+
+      def admin?(nil), do: false
+
+      def admin?(%{email: email}) when is_binary(email) do
+        case admin_email() do
+          nil -> false
+          value -> String.trim(value) != "" and email == String.trim(value)
+        end
+      end
+
+      def admin?(_user), do: false
+
+      def submit(prompt) when is_binary(prompt) do
+        prompt = String.trim(prompt)
+
+        cond do
+          prompt == "" ->
+            {:error, :blank}
+
+          true ->
+            Reverb.emit(:manual, prompt,
+              source: "Captain UI",
+              metadata: %{
+                "source_kind" => "captain",
+                "ui_source" => "captain",
+                "subject" => summarize(prompt)
+              }
+            )
+
+            :ok
+        end
+      end
+
+      def opencode_url do
+        System.get_env("QUICKSTART_OPENCODE_URL") || @opencode_default
+      end
+
+      def list_tasks do
+        url = operator_url() <> "/api/tasks?source_kind=captain&limit=25"
+        :inets.start()
+
+        case :httpc.request(:get, {String.to_charlist(url), []}, [], body_format: :binary) do
+          {:ok, {{_, 200, _}, _headers, body}} ->
+            case Jason.decode(body) do
+              {:ok, %{"tasks" => tasks}} when is_list(tasks) -> {:ok, tasks}
+              {:ok, _} -> {:error, "Unexpected task payload from Reverb."}
+              {:error, _} -> {:error, "Reverb returned invalid JSON."}
+            end
+
+          {:ok, {{_, status, _}, _headers, _body}} ->
+            {:error, "Reverb operator returned HTTP \#{status}."}
+
+          {:error, reason} ->
+            {:error, "Could not reach Reverb (\#{inspect(reason)})."}
+        end
+      end
+
+      defp summarize(prompt) do
+        prompt
+        |> String.split(~r/\s+/, trim: true)
+        |> Enum.take(12)
+        |> Enum.join(" ")
+        |> String.slice(0, 120)
+      end
+
+      defp operator_url do
+        System.get_env("REVERB_OPERATOR_URL") || @operator_default
+      end
+    end
+    """
+  end
+
+  defp captain_controller_template(module_base) do
+    web_module = module_base <> "Web"
+
+    """
+    defmodule #{web_module}.CaptainController do
+      use #{web_module}, :controller
+
+      alias #{module_base}.Captain
+
+      plug :require_admin
+
+      @running_states ["claimed", "running", "validating", "awaiting_approval"]
+      @queued_states ["pending", "failed"]
+      @finished_states ["stable", "shelved", "cancelled"]
+
+      def index(conn, _params) do
+        {tasks, fetch_error} =
+          case Captain.list_tasks() do
+            {:ok, tasks} -> {tasks, nil}
+            {:error, reason} -> {[], reason}
+          end
+
+        html(conn, index_html(conn, tasks, fetch_error))
+      end
+
+      def create(conn, %{"captain" => %{"prompt" => prompt}}) do
+        case Captain.submit(prompt) do
+          :ok ->
+            conn
+            |> put_flash(:info, "Captain request queued. Reverb will pick it up before automated tasks.")
+            |> redirect(to: ~p"/captain")
+
+          {:error, :blank} ->
+            conn
+            |> put_flash(:error, "Write one concrete request before sending it to Captain.")
+            |> redirect(to: ~p"/captain")
+        end
+      end
+
+      defp require_admin(conn, _opts) do
+        user = conn.assigns[:current_user]
+
+        cond do
+          is_nil(user) ->
+            conn
+            |> put_flash(:error, "Sign in as the quickstart admin user to access Captain.")
+            |> redirect(to: "/sign-in")
+            |> halt()
+
+          Captain.admin?(user) ->
+            conn
+
+          true ->
+            conn
+            |> put_flash(:error, "Captain is restricted to the configured quickstart admin account.")
+            |> redirect(to: "/")
+            |> halt()
+        end
+      end
+
+      defp index_html(conn, tasks, fetch_error) do
+        project_name = Captain.project_name() |> escape_html()
+        opencode_url = Captain.opencode_url() |> escape_html()
+        running = Enum.filter(tasks, &(&1["state"] in @running_states))
+        queued = Enum.filter(tasks, &(&1["state"] in @queued_states))
+        finished = Enum.filter(tasks, &(&1["state"] in @finished_states)) |> Enum.take(8)
+
+        info_flash = get_flash(conn, :info)
+        error_flash = get_flash(conn, :error)
+        fetch_error_html = if fetch_error, do: flash_block(fetch_error, :error), else: ""
+
+        ~s|
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Captain | \#{project_name}</title>
+            <style>
+              :root { color-scheme: dark; }
+              body {
+                margin: 0;
+                font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+                background: #020617;
+                color: #e2e8f0;
+              }
+              main {
+                max-width: 1100px;
+                margin: 0 auto;
+                padding: 28px 20px 72px;
+              }
+              .topbar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 24px;
+              }
+              .title h1 { margin: 0; font-size: clamp(2rem, 5vw, 3rem); }
+              .title p { margin: 8px 0 0; color: #94a3b8; }
+              .nav { display: flex; gap: 12px; flex-wrap: wrap; }
+              .nav a {
+                color: #e2e8f0; text-decoration: none; padding: 10px 14px; border-radius: 12px;
+                background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(148, 163, 184, 0.18);
+              }
+              .panel {
+                border: 1px solid rgba(148, 163, 184, 0.18); background: rgba(15, 23, 42, 0.84);
+                border-radius: 20px; padding: 20px; box-shadow: 0 24px 80px rgba(2, 6, 23, 0.36);
+              }
+              .composer textarea {
+                width: 100%; min-height: 168px; resize: vertical; border-radius: 16px;
+                border: 1px solid rgba(148, 163, 184, 0.22); background: #0f172a; color: #e2e8f0;
+                padding: 16px; font: inherit; box-sizing: border-box;
+              }
+              .composer-footer {
+                margin-top: 14px; display: flex; gap: 14px; justify-content: space-between;
+                align-items: center; flex-wrap: wrap;
+              }
+              .composer-note { color: #94a3b8; font-size: 0.95rem; max-width: 720px; }
+              button {
+                border: 0; border-radius: 14px; padding: 13px 18px; font: inherit; font-weight: 700;
+                cursor: pointer; background: linear-gradient(135deg, #22c55e, #38bdf8); color: #020617;
+              }
+              .flash { margin: 14px 0; padding: 14px 16px; border-radius: 14px; }
+              .flash-info { background: rgba(56, 189, 248, 0.14); color: #bae6fd; }
+              .flash-error { background: rgba(248, 113, 113, 0.14); color: #fecaca; }
+              .stats {
+                margin-top: 20px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+              }
+              .stat {
+                padding: 18px; border-radius: 18px; background: rgba(15, 23, 42, 0.72);
+                border: 1px solid rgba(148, 163, 184, 0.16);
+              }
+              .stat strong { display: block; font-size: 1.8rem; margin-bottom: 6px; }
+              .columns {
+                margin-top: 22px; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              }
+              .column h2 {
+                margin-top: 0; margin-bottom: 12px; font-size: 1rem; letter-spacing: 0.04em;
+                text-transform: uppercase; color: #cbd5e1;
+              }
+              .task-list { display: grid; gap: 12px; }
+              .task {
+                border-radius: 16px; padding: 14px; background: rgba(2, 6, 23, 0.72);
+                border: 1px solid rgba(148, 163, 184, 0.14);
+              }
+              .task-top {
+                display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;
+              }
+              .pill {
+                border-radius: 999px; padding: 5px 10px; font-size: 0.78rem;
+                background: rgba(59, 130, 246, 0.16); color: #bfdbfe;
+              }
+              .task p { margin: 0; line-height: 1.55; color: #e2e8f0; }
+              .meta { margin-top: 10px; color: #94a3b8; font-size: 0.92rem; }
+              .empty { color: #94a3b8; font-style: italic; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <div class="topbar">
+                <div class="title">
+                  <h1>Captain Console</h1>
+                  <p>\#{project_name} ships changes from here. OpenCode stays the credential bridge, not the steering wheel.</p>
+                </div>
+                <nav class="nav">
+                  <a href="/">Homepage</a>
+                  <a href="\#{opencode_url}" target="_blank" rel="noreferrer">Open OpenCode Web</a>
+                </nav>
+              </div>
+
+              \#{flash_block(info_flash, :info)}
+              \#{flash_block(error_flash, :error)}
+              \#{fetch_error_html}
+
+              <section class="panel composer">
+                <form action="/captain" method="post">
+                  <input type="hidden" name="_csrf_token" value="\#{Plug.CSRFProtection.get_csrf_token() |> escape_html()}" />
+                  <textarea name="captain[prompt]" placeholder="Describe one concrete change you want to see in the app."></textarea>
+                  <div class="composer-footer">
+                    <div class="composer-note">
+                      Keep requests small and concrete. OpenCode provider setup lives behind the gear in the lower-left corner of OpenCode web, then the Providers tab.
+                    </div>
+                    <button type="submit">Queue Captain Task</button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="stats">
+                <div class="stat"><strong>\#{length(running)}</strong>Active captain tasks</div>
+                <div class="stat"><strong>\#{length(queued)}</strong>Queued captain tasks</div>
+                <div class="stat"><strong>\#{length(finished)}</strong>Recent finished captain tasks</div>
+              </section>
+
+              <section class="columns">
+                <div class="column panel">
+                  <h2>Active</h2>
+                  <div class="task-list">\#{render_task_list(running, "No captain task is actively running right now.")}</div>
+                </div>
+                <div class="column panel">
+                  <h2>Queued</h2>
+                  <div class="task-list">\#{render_task_list(queued, "No queued captain tasks yet.")}</div>
+                </div>
+                <div class="column panel">
+                  <h2>Recent Finished</h2>
+                  <div class="task-list">\#{render_task_list(finished, "Finished captain tasks will show up here.")}</div>
+                </div>
+              </section>
+            </main>
+          </body>
+        </html>
+        |
+      end
+
+      defp render_task_list([], empty_message) do
+        ~s(<div class="empty">\#{escape_html(empty_message)}</div>)
+      end
+
+      defp render_task_list(tasks, _empty_message) do
+        Enum.map_join(tasks, "", &render_task/1)
+      end
+
+      defp render_task(task) do
+        body = task["body"] || "Untitled captain task"
+        state = task["state"] || "pending"
+        status = task["status"] || "todo"
+        note = task["done_note"] || task["last_error"] || ""
+
+        ~s|
+        <article class="task">
+          <div class="task-top">
+            <span class="pill">\#{escape_html(state)}</span>
+            <span class="meta">status: \#{escape_html(status)}</span>
+          </div>
+          <p>\#{escape_html(body)}</p>
+          \#{render_note(note)}
+        </article>
+        |
+      end
+
+      defp render_note(""), do: ""
+
+      defp render_note(note) do
+        ~s(<div class="meta">\#{escape_html(note)}</div>)
+      end
+
+      defp flash_block(nil, _kind), do: ""
+      defp flash_block("", _kind), do: ""
+
+      defp flash_block(message, :info) do
+        ~s(<div class="flash flash-info">\#{escape_html(message)}</div>)
+      end
+
+      defp flash_block(message, :error) do
+        ~s(<div class="flash flash-error">\#{escape_html(message)}</div>)
+      end
+
+      defp escape_html(value) do
+        value
+        |> to_string()
+        |> Phoenix.HTML.html_escape()
+        |> Phoenix.HTML.safe_to_string()
+      end
+    end
+    """
+  end
+
+  defp summary_message(quickstart?, captain?) do
+    base =
+      [
+        "",
+        "Reverb integration files generated.",
+        "",
+        "Next steps:",
+        "  1. Add `import_config \"reverb.exs\"` to your main config if desired.",
+        "  2. Review `README.reverb.md` or the generated control/release files.",
+        "  3. Keep YOLO mode off if you want prod RPC to remain non-mutating."
+      ]
+
+    base =
+      if quickstart? do
+        base ++
+          [
+            "  4. AshAuthentication should already be installed before quickstart reverb wiring runs.",
+            "  5. Captain is admin-gated and uses the configured initial admin email."
+          ]
+      else
+        base ++
+          [
+            "  4. Set a shared cookie and agent auth in `.env.reverb`.",
+            "  5. Boot the standalone coordinator with `docker compose -f docker-compose.reverb.yml up`."
+          ]
+      end
+
+    base =
+      if captain? and not quickstart? do
+        base ++ ["", "Captain routes were generated, but you still need to place them behind your app's authenticated scope manually."]
+      else
+        base
+      end
+
+    Enum.join(base, "\n")
+  end
+
+  defp release_path(app), do: Path.join(["lib", app, "release.ex"])
+  defp control_path(app), do: Path.join(["lib", app, "reverb", "control.ex"])
+  defp captain_path(app), do: Path.join(["lib", app, "captain.ex"])
+
+  defp captain_controller_path(app),
+    do: Path.join(["lib", "#{app}_web", "controllers", "captain_controller.ex"])
 end

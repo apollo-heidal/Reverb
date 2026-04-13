@@ -24,6 +24,7 @@ services:
       context: .
       dockerfile: Dockerfile.app
     hostname: prod
+    restart: unless-stopped
     env_file:
       - .env.reverb
     depends_on:
@@ -87,9 +88,6 @@ services:
       - .:/sandbox/workspace:Z,U
       - reverb_workspaces:/workspaces
       - opencode_data:/root/.local/share/opencode
-      # Optional developer shortcut:
-      # Replace the named volume above with your host auth directory to skip re-auth.
-      # - ~/.local/share/opencode:/root/.local/share/opencode
 
 volumes:
   prod_db_data:

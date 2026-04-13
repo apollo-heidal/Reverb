@@ -67,6 +67,14 @@ config :reverb, Reverb.Operator,
   ip: {127, 0, 0, 1},
   port: 4010
 
+config :reverb, Reverb.ProdControl,
+  module: nil,
+  timeout_ms: 120_000,
+  retry_ms: 2_000
+
+config :reverb, Reverb.Captain,
+  enabled: false
+
 config :reverb, Reverb.Repo,
   database: "reverb_dev",
   username: "postgres",

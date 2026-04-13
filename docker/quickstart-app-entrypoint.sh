@@ -12,6 +12,8 @@ export QUICKSTART_APP_NAME="${QUICKSTART_APP_NAME:?missing QUICKSTART_APP_NAME}"
 export QUICKSTART_APP_MODULE="${QUICKSTART_APP_MODULE:?missing QUICKSTART_APP_MODULE}"
 export REVERB_PUBSUB_NAME="${REVERB_PUBSUB_NAME:?missing REVERB_PUBSUB_NAME}"
 export REVERB_TOPIC_HASH="${REVERB_TOPIC_HASH:?missing REVERB_TOPIC_HASH}"
+export INITIAL_ADMIN_EMAIL="${INITIAL_ADMIN_EMAIL:?missing INITIAL_ADMIN_EMAIL}"
+export INITIAL_ADMIN_PASSWORD="${INITIAL_ADMIN_PASSWORD:?missing INITIAL_ADMIN_PASSWORD}"
 
 node_name_flag="--name"
 
@@ -31,7 +33,9 @@ until pg_isready -h "$database_host" -p "$database_port" -U postgres >/dev/null 
 done
 
 if [[ ! -f "$app_root/mix.exs" ]]; then
-  mix archive.install hex phx_new 1.7.14 --force
+  mix archive.install hex phx_new 1.8.5 --force
+  mix archive.install hex igniter_new --force
+
   mix phx.new "$app_root" \
     --app "$QUICKSTART_APP_NAME" \
     --module "$QUICKSTART_APP_MODULE" \
@@ -52,11 +56,15 @@ if [[ ! -f "$app_root/mix.exs" ]]; then
   fi
 
   mix deps.get
-  mix reverb.install --patch-config --force --pubsub "$REVERB_PUBSUB_NAME" --topic-hash "$REVERB_TOPIC_HASH"
-  rm -f .env.reverb .reverb.cookie.example docker-compose.reverb.yml README.reverb.md
+
+  if ! grep -q 'ash_authentication_phoenix' mix.exs; then
+    mix igniter.install ash_authentication_phoenix --auth-strategy password --yes --yes-to-deps
+  fi
+
+  mix deps.get
+  mix reverb.install --patch-config --force --pubsub "$REVERB_PUBSUB_NAME" --topic-hash "$REVERB_TOPIC_HASH" --quickstart --captain
   sed -i 's/logger_handler: false/logger_handler: true/' config/reverb.exs
 
-  /workspace/docker/inject-captain.sh "$app_root"
   mix assets.deploy
 
   git init >/dev/null
@@ -71,7 +79,7 @@ cd "$app_root"
 mix deps.get
 mix ecto.create >/dev/null 2>&1 || true
 mix ecto.migrate
-/workspace/docker/inject-captain.sh "$app_root"
+mix run -e "${QUICKSTART_APP_MODULE}.Release.ensure_initial_admin_from_env()"
 mix assets.deploy
 
 exec elixir "$node_name_flag" "$APP_NODE_NAME" --cookie "$REVERB_ERLANG_COOKIE" -S mix phx.server
