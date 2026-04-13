@@ -4,8 +4,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git inotify-tools postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
+WORKDIR /workspace_root
 
 RUN mix local.hex --force && mix local.rebar --force
 
-ENTRYPOINT ["/workspace/docker/app-entrypoint.sh"]
+COPY docker/quickstart-app-entrypoint.sh /usr/local/bin/reverb-quickstart-app-entrypoint
+RUN chmod +x /usr/local/bin/reverb-quickstart-app-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/reverb-quickstart-app-entrypoint"]

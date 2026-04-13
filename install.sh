@@ -20,7 +20,8 @@ fi
 prompt_tty_fd=""
 
 if [ ! -t 0 ]; then
-  if { exec 3</dev/tty; } 2>/dev/null; then
+  if (exec 3</dev/tty) 2>/dev/null; then
+    exec 3</dev/tty
     prompt_tty_fd="3"
   fi
 fi
@@ -68,6 +69,8 @@ podman_compose_command=""
 podman_conf_root=""
 temp_root=""
 script_dir=""
+reverb_image="reverb-local:latest"
+quickstart_prod_image="reverb-quickstart-base:latest"
 
 cleanup() {
   [ -n "$temp_root" ] && [ -d "$temp_root" ] && rm -rf "$temp_root"
@@ -178,6 +181,43 @@ compose() {
           podman compose "$@"
         fi
       fi
+      ;;
+  esac
+}
+
+container_build() {
+  dockerfile="$1"
+  image_tag="$2"
+  context_dir="$3"
+
+  case "$container_engine" in
+    docker)
+      docker build -t "$image_tag" -f "$dockerfile" "$context_dir"
+      ;;
+    podman)
+      podman build -t "$image_tag" -f "$dockerfile" "$context_dir"
+      ;;
+  esac
+}
+
+container_mount_suffix() {
+  case "$container_engine" in
+    podman) printf '%s' ':Z,U' ;;
+    *) printf '%s' '' ;;
+  esac
+}
+
+run_reverb_mix() {
+  mount_source="$1"
+  shift
+  mount_suffix="$(container_mount_suffix)"
+
+  case "$container_engine" in
+    docker)
+      docker run --rm --entrypoint sh -w /opt/reverb -v "$mount_source:/workspace_root$mount_suffix" "$reverb_image" -lc "$*"
+      ;;
+    podman)
+      podman run --rm --entrypoint sh -w /opt/reverb -v "$mount_source:/workspace_root$mount_suffix" "$reverb_image" -lc "$*"
       ;;
   esac
 }
@@ -557,27 +597,10 @@ if [ -n "$source_root" ] && [ "$(basename "$project_parent")" = "reverb-apps" ];
   fi
 fi
 
-mkdir -p "$project_dir" "$project_dir/.reverb-src" "$project_dir/docker"
-
-headline "Scaffolding Project"
-
-set -- --exclude='.git' --exclude='_build' --exclude='deps' --exclude='tmp' --exclude='plans' --exclude='quickstart'
-
-case "$project_dir" in
-  "$source_root"/*) set -- "$@" --exclude="$project_basename" ;;
-esac
-
-(cd "$source_root" && tar "$@" -cf - .) | (cd "$project_dir/.reverb-src" && tar -xf -)
-cp "$source_root/docker/quickstart-compose.yml" "$project_dir/docker-compose.yml"
-cp "$source_root/docker/quickstart-app.Dockerfile" "$project_dir/Dockerfile.app"
-cp "$source_root/docker/quickstart-app-entrypoint.sh" "$project_dir/docker/app-entrypoint.sh"
-cp "$source_root/docker/quickstart.dockerignore" "$project_dir/.dockerignore"
-chmod +x "$project_dir/docker/app-entrypoint.sh"
-check "Created project files"
-
 topic_hash="captain-${project_slug}-$(date +%s)"
 erlang_cookie="$(random_alnum 48)"
 secret_key_base="$(random_alnum 64)"
+token_signing_secret="$(random_alnum 64)"
 initial_admin_password="$(random_alnum 96)"
 quickstart_app_name="$(printf '%s' "$project_slug" | tr '-' '_')"
 
@@ -586,35 +609,6 @@ case "$quickstart_app_name" in
 esac
 
 quickstart_app_module="$(camelize "$quickstart_app_name")"
-reverb_pubsub_name="${quickstart_app_module}.PubSub"
-reverb_control_module="${quickstart_app_module}.Reverb.Control"
-
-cat > "$project_dir/.env.reverb" <<EOF
-REVERB_PROJECT_NAME=$project_name
-REVERB_QUICKSTART_APP=$project_slug
-REVERB_QUICKSTART_FINGERPRINT=reverb-quickstart-v1
-REVERB_TOPIC_HASH=$topic_hash
-REVERB_ERLANG_COOKIE=$erlang_cookie
-REVERB_APP_SECRET_KEY_BASE=$secret_key_base
-REVERB_PUBSUB_NAME=$reverb_pubsub_name
-REVERB_CONTROL_MODULE=$reverb_control_module
-REVERB_AGENT_MODEL=gpt-5.4
-QUICKSTART_APP_NAME=$quickstart_app_name
-QUICKSTART_APP_MODULE=$quickstart_app_module
-QUICKSTART_HOST_APP_PORT=$app_host_port
-QUICKSTART_HOST_OPENCODE_PORT=$opencode_host_port
-QUICKSTART_APP_URL=http://localhost:$app_host_port
-QUICKSTART_OPENCODE_URL=http://localhost:$opencode_host_port
-INITIAL_ADMIN_EMAIL=$initial_admin_email
-INITIAL_ADMIN_PASSWORD=$initial_admin_password
-EOF
-
-export REVERB_QUICKSTART_APP="$project_slug"
-export REVERB_QUICKSTART_FINGERPRINT="reverb-quickstart-v1"
-export QUICKSTART_HOST_APP_PORT="$app_host_port"
-export QUICKSTART_HOST_OPENCODE_PORT="$opencode_host_port"
-
-check "Wrote .env.reverb"
 
 headline "Credentials"
 printf "%bAdmin email:%b %s\n" "$BOLD" "$RESET" "$initial_admin_email"
@@ -633,9 +627,22 @@ while :; do
   warn "The installer will wait until you confirm the password has been written down."
 done
 
+headline "Preparing Images"
+info "Building local Reverb image: $reverb_image"
+container_build "$source_root/docker/reverb.Dockerfile" "$reverb_image" "$source_root"
+check "Built $reverb_image"
+
+info "Building local quickstart base image: $quickstart_prod_image"
+container_build "$source_root/docker/quickstart-app.Dockerfile" "$quickstart_prod_image" "$source_root"
+check "Built $quickstart_prod_image"
+
+headline "Scaffolding Project"
+run_reverb_mix "$project_parent" "mix reverb.quickstart --target /workspace_root/$project_slug --project-name \"$project_name\" --app-name \"$quickstart_app_name\" --module \"$quickstart_app_module\" --topic-hash \"$topic_hash\" --reverb-erlang-cookie \"$erlang_cookie\" --initial-admin-email \"$initial_admin_email\" --initial-admin-password \"$initial_admin_password\" --secret-key-base \"$secret_key_base\" --token-signing-secret \"$token_signing_secret\" --app-port \"$app_host_port\" --opencode-port \"$opencode_host_port\" --workspace-root-host-path \"$project_parent\" --bind-mount-suffix \"$(container_mount_suffix)\" --reverb-image \"$reverb_image\" --quickstart-prod-image \"$quickstart_prod_image\""
+check "Created project files"
+
 headline "Starting Containers"
 compose -f "$project_dir/docker-compose.yml" down --remove-orphans >/dev/null 2>&1 || true
-compose -f "$project_dir/docker-compose.yml" up --build -d
+compose -f "$project_dir/docker-compose.yml" up -d
 check "Compose stack is booting"
 
 wait_for_url "Phoenix app" "http://127.0.0.1:$app_host_port" 1200
