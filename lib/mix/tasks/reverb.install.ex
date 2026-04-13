@@ -562,7 +562,7 @@ defmodule Mix.Tasks.Reverb.Install do
         error_flash = get_flash(conn, :error)
         fetch_error_html = if fetch_error, do: flash_block(fetch_error, :error), else: ""
 
-        ~s|
+        \"\"\"
         <!DOCTYPE html>
         <html lang="en">
           <head>
@@ -703,7 +703,7 @@ defmodule Mix.Tasks.Reverb.Install do
             </main>
           </body>
         </html>
-        |
+        \"\"\"
       end
 
       defp render_task_list([], empty_message) do
@@ -720,7 +720,7 @@ defmodule Mix.Tasks.Reverb.Install do
         status = task["status"] || "todo"
         note = task["done_note"] || task["last_error"] || ""
 
-        ~s|
+        \"\"\"
         <article class="task">
           <div class="task-top">
             <span class="pill">\#{escape_html(state)}</span>
@@ -729,7 +729,7 @@ defmodule Mix.Tasks.Reverb.Install do
           <p>\#{escape_html(body)}</p>
           \#{render_note(note)}
         </article>
-        |
+        \"\"\"
       end
 
       defp render_note(""), do: ""

@@ -58,7 +58,9 @@ if [[ ! -f "$app_root/mix.exs" ]]; then
   mix deps.get
 
   if ! grep -q 'ash_authentication_phoenix' mix.exs; then
-    mix igniter.install ash_authentication_phoenix --auth-strategy password --yes --yes-to-deps
+    mix igniter.install ash,ash_postgres,ash_phoenix --yes --yes-to-deps
+    mix igniter.install ash_authentication --auth-strategy password --yes --yes-to-deps
+    mix igniter.install ash_authentication_phoenix --yes --yes-to-deps
   fi
 
   mix deps.get

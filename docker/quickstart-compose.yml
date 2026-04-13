@@ -2,6 +2,10 @@ services:
   prod-db:
     image: postgres:16
     hostname: prod-db
+    labels:
+      dev.reverb.quickstart.managed: "true"
+      dev.reverb.quickstart.app: "${REVERB_QUICKSTART_APP}"
+      dev.reverb.quickstart.fingerprint: "${REVERB_QUICKSTART_FINGERPRINT}"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -12,6 +16,10 @@ services:
   reverb-db:
     image: postgres:16
     hostname: reverb-db
+    labels:
+      dev.reverb.quickstart.managed: "true"
+      dev.reverb.quickstart.app: "${REVERB_QUICKSTART_APP}"
+      dev.reverb.quickstart.fingerprint: "${REVERB_QUICKSTART_FINGERPRINT}"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -25,6 +33,10 @@ services:
       dockerfile: Dockerfile.app
     hostname: prod
     restart: unless-stopped
+    labels:
+      dev.reverb.quickstart.managed: "true"
+      dev.reverb.quickstart.app: "${REVERB_QUICKSTART_APP}"
+      dev.reverb.quickstart.fingerprint: "${REVERB_QUICKSTART_FINGERPRINT}"
     env_file:
       - .env.reverb
     depends_on:
@@ -51,6 +63,10 @@ services:
       context: ./.reverb-src
       dockerfile: docker/reverb.Dockerfile
     hostname: reverb
+    labels:
+      dev.reverb.quickstart.managed: "true"
+      dev.reverb.quickstart.app: "${REVERB_QUICKSTART_APP}"
+      dev.reverb.quickstart.fingerprint: "${REVERB_QUICKSTART_FINGERPRINT}"
     env_file:
       - .env.reverb
     depends_on:
@@ -83,7 +99,7 @@ services:
       REVERB_OPENCODE_WEB_PORT: "4096"
       REVERB_OPENCODE_WEB_WORKDIR: /sandbox/workspace/app
     ports:
-      - "${QUICKSTART_HOST_OPENCODE_PORT:-4096}:4096"
+      - "127.0.0.1:${QUICKSTART_HOST_OPENCODE_PORT:-4096}:4096"
     volumes:
       - .:/sandbox/workspace:Z,U
       - reverb_workspaces:/workspaces

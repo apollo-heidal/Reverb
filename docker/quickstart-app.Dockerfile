@@ -1,7 +1,7 @@
-FROM hexpm/elixir:1.18.4-erlang-27.1.3-debian-bookworm-20250610-slim
+FROM docker.io/hexpm/elixir:1.18.4-erlang-26.2.5.19-debian-bookworm-20260406-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash ca-certificates curl git inotify-tools postgresql-client && \
+    apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git inotify-tools postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
