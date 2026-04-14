@@ -21,6 +21,10 @@ RUN chmod +x docker/reverb-entrypoint.sh
 
 ENV MIX_ENV=prod
 
+# Claude's --dangerously-skip-permissions flag refuses to run as root unless
+# IS_SANDBOX=1. This image runs as root by design, so we opt in here.
+ENV IS_SANDBOX=1
+
 RUN mix compile
 
 RUN set -eux; \

@@ -46,7 +46,16 @@ defmodule Reverb.Agent.CLI.Claude do
               |> normalize_result(command, args, exit_code, start_ms)
               |> Map.put(:timed_out, false)
 
-            if exit_code == 0, do: {:ok, result}, else: {:error, {:exit_code, exit_code, result}}
+            cond do
+              exit_code == 0 ->
+                {:ok, result}
+
+              msg = auth_error_message(output) ->
+                {:error, {:auth_error, msg, Map.put(result, :auth_error, msg)}}
+
+              true ->
+                {:error, {:exit_code, exit_code, result}}
+            end
 
           nil ->
             {:error, :timeout}
@@ -179,4 +188,38 @@ defmodule Reverb.Agent.CLI.Claude do
 
   defp empty_to_nil(""), do: nil
   defp empty_to_nil(value), do: value
+
+  @auth_error_patterns [
+    ~r/invalid\s+api\s+key/i,
+    ~r/unauthori[sz]ed/i,
+    ~r/authentication\s+failed/i,
+    ~r/not\s+authenticated/i,
+    ~r/please\s+run\s+\/login/i,
+    ~r/run\s+`?claude\s+setup-token`?/i,
+    ~r/\b401\b.*(unauth|auth)/i,
+    ~r/\b403\b.*forbidden/i,
+    ~r/oauth.*expired/i,
+    ~r/token.*expired/i,
+    ~r/credential.*invalid/i,
+    ~r/login.*required/i
+  ]
+
+  defp auth_error_message(output) when is_binary(output) do
+    Enum.find_value(@auth_error_patterns, fn pattern ->
+      case Regex.run(pattern, output) do
+        [match | _] -> surrounding_snippet(output, match)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp surrounding_snippet(output, match) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.find(fn line -> line =~ match end)
+    |> case do
+      nil -> match
+      line -> String.slice(line, 0, 240)
+    end
+  end
 end

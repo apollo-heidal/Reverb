@@ -48,6 +48,7 @@ defmodule ReverbQuickstartTemplateWeb.Router do
     post "/captain/providers/claude/start", CaptainProvidersController, :start_claude
     post "/captain/providers/claude/complete", CaptainProvidersController, :complete_claude
     post "/captain/providers/claude/cancel", CaptainProvidersController, :cancel_claude
+    post "/captain/providers/claude/probe", CaptainProvidersController, :probe_claude
     auth_routes AuthController, ReverbQuickstartTemplate.Accounts.User, path: "/auth"
     sign_out_route AuthController
 

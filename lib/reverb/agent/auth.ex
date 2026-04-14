@@ -79,16 +79,31 @@ defmodule Reverb.Agent.Auth do
   reports claude; opencode and others are reported as `:unknown` because their
   credential state lives in adapter-specific files we don't inspect yet.
   """
-  @spec status() :: %{claude: claude_status(), opencode: :unknown}
+  @spec status() :: %{
+          providers: %{claude: claude_status(), opencode: :unknown},
+          errors: %{claude: String.t() | nil, opencode: nil},
+          last_probe: %{claude: probe_result() | nil}
+        }
   def status do
+    claude_file = claude_file_status()
+    claude_pool_error = claude_pool_auth_error()
+
+    claude_status =
+      cond do
+        claude_pool_error != nil -> :failing
+        true -> claude_file
+      end
+
     %{
-      claude: claude_status(),
-      opencode: :unknown
+      providers: %{claude: claude_status, opencode: :unknown},
+      errors: %{claude: claude_pool_error, opencode: nil},
+      last_probe: %{claude: GenServer.call(__MODULE__, :last_probe_claude)}
     }
   end
 
   @typedoc """
-  Result of the passive claude credential check.
+  Result of the passive claude credential check — *before* folding in any
+  live-failure signal from the adapter pool.
 
     * `:authed` — credentials file is present, parses, carries a recognised
       OAuth token or API key, and any embedded expiry is still in the future.
@@ -96,16 +111,80 @@ defmodule Reverb.Agent.Auth do
     * `:invalid` — credentials file exists but is unreadable, not valid JSON,
       or does not carry a recognised credential shape.
     * `:missing` — credentials file is absent.
+    * `:failing` — the credentials file looks fine but the most recent real
+      call to Anthropic (either a regular run or an on-demand probe) came
+      back with an auth-class error.
 
   The passive check guarantees only that the file *could* be a valid
-  credential. An authoritative guarantee requires a live probe against the
-  provider.
+  credential. `:failing` and a successful probe are the only signals that
+  prove anything about the live token.
   """
-  @type claude_status :: :authed | :expired | :invalid | :missing
+  @type claude_status :: :authed | :failing | :expired | :invalid | :missing
+
+  @typedoc "Cached result of the most recent live probe against Claude."
+  @type probe_result :: %{
+          result: :ok | {:error, term()},
+          at: DateTime.t(),
+          message: String.t() | nil
+        }
+
+  @doc """
+  Execute a short, synchronous call against Claude using the current
+  credentials. This is the only authoritative proof of auth — success
+  clears pool health state, and any auth-class failure is recorded so
+  `status/0` immediately reflects `:failing`.
+  """
+  @spec probe_claude() :: :ok | {:error, term()}
+  def probe_claude do
+    GenServer.call(__MODULE__, :probe_claude, 60_000)
+  end
 
   @impl true
   def init(_opts) do
-    {:ok, %{sessions: %{}}}
+    {:ok, %{sessions: %{}, last_probe: %{claude: nil}}}
+  end
+
+  @impl true
+  def handle_call(:last_probe_claude, _from, state) do
+    {:reply, state.last_probe.claude, state}
+  end
+
+  def handle_call(:probe_claude, _from, state) do
+    prompt = "Reply with exactly one word: pong."
+
+    result =
+      try do
+        Reverb.Agent.CLI.Claude.run(prompt,
+          adapter: :claude,
+          model: "claude-haiku-4-5",
+          timeout_ms: 45_000
+        )
+      rescue
+        e -> {:error, {:probe_crash, Exception.message(e)}}
+      end
+
+    {reply, probe_record} =
+      case result do
+        {:ok, _} ->
+          Reverb.Agent.Pool.mark_ok(:claude)
+          {:ok, %{result: "ok", at: DateTime.utc_now(), message: nil}}
+
+        {:error, {:auth_error, msg, _result}} ->
+          Reverb.Agent.Pool.mark_failed(:claude, {:auth_error, msg})
+
+          {{:error, {:auth_error, msg}},
+           %{result: "auth_error", at: DateTime.utc_now(), message: msg}}
+
+        {:error, reason} = err ->
+          {err,
+           %{
+             result: Atom.to_string(classify_probe_reason(reason)),
+             at: DateTime.utc_now(),
+             message: probe_reason_message(reason)
+           }}
+      end
+
+    {:reply, reply, %{state | last_probe: %{state.last_probe | claude: probe_record}}}
   end
 
   @impl true
@@ -335,7 +414,7 @@ defmodule Reverb.Agent.Auth do
     end
   end
 
-  defp claude_status do
+  defp claude_file_status do
     path = Path.expand("~/.claude/.credentials.json")
 
     with true <- File.exists?(path),
@@ -347,6 +426,51 @@ defmodule Reverb.Agent.Auth do
       _ -> :invalid
     end
   end
+
+  defp claude_pool_auth_error do
+    case pool_lookup(:claude) do
+      %{last_failure: {:auth_error, msg}} when is_binary(msg) -> msg
+      %{last_failure: {:auth_error, msg}} -> inspect(msg)
+      %{consecutive_failures: n, last_failure: failure} when n > 0 and failure != nil ->
+        describe_failure(failure)
+      _ -> nil
+    end
+  end
+
+  defp describe_failure({:exit_code, code, %{output: output}}) when is_binary(output) do
+    snippet = output |> String.trim() |> String.slice(0, 240)
+    if snippet == "", do: "Claude exited with status #{code}.", else: snippet
+  end
+
+  defp describe_failure({:exit_code, code, _}), do: "Claude exited with status #{code}."
+  defp describe_failure(:timeout), do: "Claude timed out before responding."
+  defp describe_failure({:command_not_found, cmd}), do: "Command not found: #{cmd}"
+  defp describe_failure(other), do: inspect(other)
+
+  defp pool_lookup(adapter) do
+    try do
+      case :ets.lookup(Reverb.Agent.Pool, adapter) do
+        [{^adapter, entry}] -> entry
+        _ -> nil
+      end
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp classify_probe_reason({:command_not_found, _}), do: :command_not_found
+  defp classify_probe_reason(:timeout), do: :timeout
+  defp classify_probe_reason({:exit_code, _, _}), do: :exit_code
+  defp classify_probe_reason({:probe_crash, _}), do: :crash
+  defp classify_probe_reason(_), do: :other
+
+  defp probe_reason_message({:exit_code, _, %{output: output}}) when is_binary(output),
+    do: String.slice(String.trim(output), 0, 240)
+
+  defp probe_reason_message({:probe_crash, msg}), do: msg
+  defp probe_reason_message(:timeout), do: "Probe timed out before Claude responded."
+  defp probe_reason_message({:command_not_found, cmd}), do: "Command not found: #{cmd}"
+  defp probe_reason_message(reason), do: inspect(reason)
 
   defp classify_claude_credentials(%{"claudeAiOauth" => %{"accessToken" => token} = oauth})
        when is_binary(token) and byte_size(token) > 20 do

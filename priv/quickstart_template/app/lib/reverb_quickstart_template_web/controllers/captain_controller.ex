@@ -17,7 +17,8 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
           {:error, reason} -> {[], reason}
         end
 
-      html(conn, index_html(conn, tasks, fetch_error))
+      degraded = Captain.degraded_auth_summary()
+      html(conn, index_html(conn, tasks, fetch_error, degraded))
     else
       conn
       |> put_flash(
@@ -64,7 +65,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
     end
   end
 
-  defp index_html(conn, tasks, fetch_error) do
+  defp index_html(conn, tasks, fetch_error, degraded) do
     project_name = Captain.project_name() |> escape_html()
     running = Enum.filter(tasks, &(&1["state"] in @running_states))
     queued = Enum.filter(tasks, &(&1["state"] in @queued_states))
@@ -73,6 +74,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
     info_flash = get_flash(conn, :info)
     error_flash = get_flash(conn, :error)
     fetch_error_html = if fetch_error, do: flash_block(fetch_error, :error), else: ""
+    degraded_html = render_degraded_banner(degraded)
 
     """
     <!DOCTYPE html>
@@ -130,6 +132,18 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
           .flash { margin: 14px 0; padding: 14px 16px; border-radius: 14px; }
           .flash-info { background: rgba(56, 189, 248, 0.14); color: #bae6fd; }
           .flash-error { background: rgba(248, 113, 113, 0.14); color: #fecaca; }
+          .banner-degraded {
+            margin: 14px 0; padding: 16px 18px; border-radius: 16px;
+            background: rgba(239, 68, 68, 0.14); color: #fecaca;
+            border: 1px solid rgba(239, 68, 68, 0.28);
+            display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+          }
+          .banner-degraded strong { color: #fecaca; }
+          .banner-degraded a {
+            color: #020617; background: #fecaca; padding: 9px 13px;
+            border-radius: 12px; text-decoration: none; font-weight: 700;
+          }
+          .banner-degraded .detail { color: #fde8e8; font-size: 0.92rem; }
           .stats {
             margin-top: 20px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
           }
@@ -175,6 +189,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
             </nav>
           </div>
 
+          #{degraded_html}
           #{flash_block(info_flash, :info)}
           #{flash_block(error_flash, :error)}
           #{fetch_error_html}
@@ -241,6 +256,28 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
       <p>#{escape_html(body)}</p>
       #{render_note(note)}
     </article>
+    """
+  end
+
+  defp render_degraded_banner(nil), do: ""
+
+  defp render_degraded_banner({status, message}) do
+    headline =
+      case status do
+        :failing -> "Claude auth is failing — Reverb can't make changes right now."
+        :expired -> "The stored Claude token has expired — Reverb can't make changes right now."
+        :invalid -> "The stored Claude credential is unreadable — Reverb can't make changes right now."
+        :missing -> "No Claude credential is present — Reverb can't make changes right now."
+      end
+
+    """
+    <div class="banner-degraded">
+      <div>
+        <strong>#{escape_html(headline)}</strong>
+        <div class="detail">#{escape_html(message)}</div>
+      </div>
+      <a href="/captain/providers">Open provider settings</a>
+    </div>
     """
   end
 

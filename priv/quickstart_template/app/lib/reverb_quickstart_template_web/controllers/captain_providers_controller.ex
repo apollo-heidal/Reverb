@@ -6,7 +6,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
   plug :require_admin
 
   def index(conn, _params) do
-    providers =
+    payload =
       case Captain.auth_status() do
         {:ok, map} -> map
         {:error, _} -> %{}
@@ -14,7 +14,21 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
 
     pending = get_session(conn, :claude_auth_pending)
 
-    html(conn, index_html(conn, providers, pending))
+    html(conn, index_html(conn, payload, pending))
+  end
+
+  def probe_claude(conn, _params) do
+    case Captain.claude_auth_probe() do
+      {:ok, _} ->
+        conn
+        |> put_flash(:info, "Claude probe succeeded. The stored credential is live.")
+        |> redirect(to: ~p"/captain/providers")
+
+      {:error, message} ->
+        conn
+        |> put_flash(:error, "Claude probe failed: #{message}")
+        |> redirect(to: ~p"/captain/providers")
+    end
   end
 
   def start_claude(conn, _params) do
@@ -88,10 +102,15 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
     end
   end
 
-  defp index_html(conn, providers, pending) do
+  defp index_html(conn, payload, pending) do
     project_name = Captain.project_name() |> escape_html()
+    providers = Map.get(payload, "providers", %{})
+    errors = Map.get(payload, "errors", %{})
+    last_probe = Map.get(payload, "last_probe", %{})
     claude_status = Map.get(providers, "claude", "unknown")
     opencode_status = Map.get(providers, "opencode", "unknown")
+    claude_error = Map.get(errors, "claude")
+    claude_probe = Map.get(last_probe, "claude")
 
     info_flash = get_flash(conn, :info)
     error_flash = get_flash(conn, :error)
@@ -121,7 +140,12 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
           .pill-missing { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
           .pill-expired { background: rgba(250, 204, 21, 0.18); color: #fde68a; }
           .pill-invalid { background: rgba(249, 115, 22, 0.18); color: #fed7aa; }
+          .pill-failing { background: rgba(239, 68, 68, 0.24); color: #fecaca; }
           .pill-unknown { background: rgba(148, 163, 184, 0.18); color: #e2e8f0; }
+          .error-note { margin-top: 10px; padding: 10px 14px; border-radius: 12px;
+            background: rgba(239, 68, 68, 0.12); color: #fecaca; font-size: 0.92rem; word-break: break-word; }
+          .probe-note { margin-top: 10px; padding: 10px 14px; border-radius: 12px;
+            background: rgba(148, 163, 184, 0.12); color: #cbd5e1; font-size: 0.9rem; }
           button, .btn {
             border: 0; border-radius: 14px; padding: 11px 16px; font: inherit; font-weight: 700;
             cursor: pointer; background: linear-gradient(135deg, #22c55e, #38bdf8); color: #020617;
@@ -162,7 +186,9 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
               </div>
               <span class="pill #{status_class(claude_status)}">#{escape_html(to_string(claude_status))}</span>
             </div>
+            #{render_claude_error(claude_error, claude_status)}
             #{render_claude_section(pending, claude_status, csrf)}
+            #{render_probe_section(claude_status, claude_probe, csrf)}
           </section>
 
           <section class="panel">
@@ -180,9 +206,53 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
     """
   end
 
+  defp render_claude_error(nil, _status), do: ""
+
+  defp render_claude_error(message, status) when status in ["failing", :failing] do
+    ~s(<div class="error-note"><strong>Claude auth is failing.</strong> Last live error:<br/>#{escape_html(message)}</div>)
+  end
+
+  defp render_claude_error(_message, _status), do: ""
+
+  defp render_probe_section(status, probe, csrf) when status in ["authed", :authed, "failing", :failing] do
+    """
+    <form action="/captain/providers/claude/probe" method="post" style="margin-top: 14px;">
+      <input type="hidden" name="_csrf_token" value="#{csrf}" />
+      <button type="submit" class="btn-secondary btn">Verify connection</button>
+    </form>
+    #{render_probe_result(probe)}
+    """
+  end
+
+  defp render_probe_section(_status, _probe, _csrf), do: ""
+
+  defp render_probe_result(nil), do: ""
+
+  defp render_probe_result(%{"result" => "ok", "at" => at}) do
+    ~s(<div class="probe-note">Last live probe succeeded at #{escape_html(at)}.</div>)
+  end
+
+  defp render_probe_result(%{"result" => result, "at" => at, "message" => message}) do
+    reason = if is_binary(result), do: result, else: inspect(result)
+    detail = if is_binary(message) and message != "", do: ": " <> escape_html(message), else: ""
+    ~s(<div class="probe-note">Last live probe failed at #{escape_html(at)} (#{escape_html(reason)})#{detail}</div>)
+  end
+
+  defp render_probe_result(_), do: ""
+
   defp render_claude_section(nil, "authed", _csrf) do
     """
     <p class="step">Claude is authenticated. You can return to <a href="/captain">Captain</a>.</p>
+    """
+  end
+
+  defp render_claude_section(nil, "failing", csrf) do
+    """
+    <p class="step" style="color: #fecaca;">Re-authenticate or verify the stored credential below.</p>
+    <form action="/captain/providers/claude/start" method="post">
+      <input type="hidden" name="_csrf_token" value="#{csrf}" />
+      <button type="submit">Re-authenticate Claude</button>
+    </form>
     """
   end
 
@@ -240,6 +310,8 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
   defp status_class(:expired), do: "pill-expired"
   defp status_class("invalid"), do: "pill-invalid"
   defp status_class(:invalid), do: "pill-invalid"
+  defp status_class("failing"), do: "pill-failing"
+  defp status_class(:failing), do: "pill-failing"
   defp status_class(_), do: "pill-unknown"
 
   defp flash_block(nil, _kind), do: ""

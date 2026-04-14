@@ -59,7 +59,20 @@ defmodule Reverb.Operator.Router do
   end
 
   get "/api/agent/auth/status" do
-    send_json(conn, 200, %{providers: Reverb.Agent.Auth.status()})
+    send_json(conn, 200, Reverb.Agent.Auth.status())
+  end
+
+  post "/api/agent/auth/claude/probe" do
+    case Reverb.Agent.Auth.probe_claude() do
+      :ok ->
+        send_json(conn, 200, %{result: "ok"})
+
+      {:error, {:auth_error, msg}} ->
+        send_json(conn, 422, %{error: "auth_error", message: msg})
+
+      {:error, reason} ->
+        send_json(conn, 422, %{error: inspect(reason)})
+    end
   end
 
   post "/api/agent/auth/claude/start" do

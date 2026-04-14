@@ -85,12 +85,14 @@ defmodule ReverbQuickstartTemplate.Captain do
   end
 
   @doc """
-  Returns `{:ok, %{"claude" => status, ...}}` from the Reverb operator. Status
-  values are strings like `"authed"`, `"missing"`, or `"unknown"`.
+  Returns `{:ok, payload}` from the Reverb operator auth status endpoint.
+  The payload has `"providers"` (string-valued statuses), `"errors"`
+  (per-provider reason strings when degraded), and `"last_probe"` (result of
+  the most recent live probe, if any).
   """
   def auth_status do
     case get_json("/api/agent/auth/status") do
-      {:ok, %{"providers" => providers}} when is_map(providers) -> {:ok, providers}
+      {:ok, %{"providers" => _} = payload} -> {:ok, payload}
       {:ok, _} -> {:error, "Unexpected auth payload from Reverb."}
       {:error, _} = err -> err
     end
@@ -102,12 +104,49 @@ defmodule ReverbQuickstartTemplate.Captain do
   """
   def any_provider_authed? do
     case auth_status() do
-      {:ok, providers} ->
+      {:ok, %{"providers" => providers}} ->
         Enum.any?(providers, fn {_k, v} -> v in ["authed", :authed] end)
 
-      {:error, _} ->
+      _ ->
         false
     end
+  end
+
+  @doc """
+  Returns a terse degradation summary suitable for a banner, or `nil` if the
+  current auth state is healthy.
+  """
+  def degraded_auth_summary do
+    case auth_status() do
+      {:ok, %{"providers" => providers, "errors" => errors}} ->
+        claude = providers["claude"]
+        claude_err = errors["claude"]
+
+        cond do
+          claude == "failing" ->
+            {:failing, claude_err || "Claude authentication is failing."}
+
+          claude == "expired" ->
+            {:expired, "The stored Claude token has expired."}
+
+          claude == "invalid" ->
+            {:invalid, "The stored Claude credential is unreadable."}
+
+          claude == "missing" ->
+            {:missing, "No Claude credential is present."}
+
+          true ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc "Run a live Claude auth probe. Returns `{:ok, _}` or `{:error, reason}`."
+  def claude_auth_probe do
+    post_json("/api/agent/auth/claude/probe", %{})
   end
 
   @doc "Starts a Claude auth session. Returns `{:ok, %{\"handle\" => _, \"url\" => _}}`."
