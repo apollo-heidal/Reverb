@@ -72,6 +72,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
     cond do
       is_nil(user) ->
         conn
+        |> put_session(:return_to, current_path(conn))
         |> put_flash(:error, "Sign in as the quickstart admin user to access Captain.")
         |> redirect(to: "/sign-in")
         |> halt()
