@@ -44,6 +44,10 @@ defmodule ReverbQuickstartTemplateWeb.Router do
     get "/", PageController, :home
     get "/captain", CaptainController, :index
     post "/captain", CaptainController, :create
+    get "/captain/providers", CaptainProvidersController, :index
+    post "/captain/providers/claude/start", CaptainProvidersController, :start_claude
+    post "/captain/providers/claude/complete", CaptainProvidersController, :complete_claude
+    post "/captain/providers/claude/cancel", CaptainProvidersController, :cancel_claude
     auth_routes AuthController, ReverbQuickstartTemplate.Accounts.User, path: "/auth"
     sign_out_route AuthController
 

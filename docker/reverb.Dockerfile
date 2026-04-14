@@ -29,4 +29,28 @@ RUN set -eux; \
     opencode --version; \
     rm -rf /root/.opencode
 
+# Claude Code CLI is the default agent adapter. Install alongside opencode so
+# both are available; the active adapter is selected at runtime via
+# REVERB_AGENT_ADAPTER. Prefer the native installer; fall back to npm if the
+# native installer is unavailable in this environment.
+RUN set -eux; \
+    if curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh; then \
+        bash /tmp/claude-install.sh || true; \
+        rm -f /tmp/claude-install.sh; \
+    fi; \
+    if ! command -v claude >/dev/null 2>&1; then \
+        for bin in /root/.claude/bin/claude /root/.local/bin/claude /usr/local/bin/claude; do \
+            if [ -x "$bin" ]; then ln -sf "$bin" /usr/local/bin/claude; break; fi; \
+        done; \
+    fi; \
+    if ! command -v claude >/dev/null 2>&1; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends ca-certificates gnupg; \
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
+        apt-get install -y --no-install-recommends nodejs; \
+        npm install -g @anthropic-ai/claude-code; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi; \
+    claude --version
+
 ENTRYPOINT ["/opt/reverb/docker/reverb-entrypoint.sh"]

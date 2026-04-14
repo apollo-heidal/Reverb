@@ -25,12 +25,18 @@ config :reverb, Reverb.Agent,
   max_consecutive_failures: 3,
   backoff_base_ms: 120_000,
   backoff_max_ms: 900_000,
-  agent_command: "opencode",
-  agent_args: ["run", "--format", "json", "--dangerously-skip-permissions"],
-  agent_adapter: :opencode,
-  agent_model: "gpt-5.4",
+  agent_command: "claude",
+  agent_args: [
+    "--print",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--dangerously-skip-permissions"
+  ],
+  agent_adapter: :claude,
+  agent_model: "claude-sonnet-4-6",
   fallback_models: [],
-  fallback_adapters: [],
+  fallback_adapters: [:opencode],
   project_root: nil,
   rotation_tasks: :default
 

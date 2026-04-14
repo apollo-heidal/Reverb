@@ -58,6 +58,43 @@ defmodule Reverb.Operator.Router do
     send_json(conn, 200, %{pool: Reverb.Agent.Pool.status()})
   end
 
+  get "/api/agent/auth/status" do
+    send_json(conn, 200, %{providers: Reverb.Agent.Auth.status()})
+  end
+
+  post "/api/agent/auth/claude/start" do
+    case Reverb.Agent.Auth.start() do
+      {:ok, %{handle: handle, url: url}} ->
+        send_json(conn, 200, %{handle: handle, url: url})
+
+      {:error, reason} ->
+        send_json(conn, 422, %{error: inspect(reason)})
+    end
+  end
+
+  post "/api/agent/auth/claude/complete" do
+    with %{"handle" => handle, "code" => code} when is_binary(handle) and is_binary(code) <-
+           conn.body_params,
+         :ok <- Reverb.Agent.Auth.complete(handle, String.trim(code)) do
+      send_json(conn, 200, %{result: "ok"})
+    else
+      %{} ->
+        send_json(conn, 422, %{error: "handle and code are required"})
+
+      {:error, reason} ->
+        send_json(conn, 422, %{error: inspect(reason)})
+    end
+  end
+
+  post "/api/agent/auth/claude/cancel" do
+    with %{"handle" => handle} when is_binary(handle) <- conn.body_params,
+         :ok <- Reverb.Agent.Auth.cancel(handle) do
+      send_json(conn, 200, %{result: "ok"})
+    else
+      _ -> send_json(conn, 422, %{error: "handle is required"})
+    end
+  end
+
   match _ do
     send_json(conn, 404, %{error: "not_found"})
   end

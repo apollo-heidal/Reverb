@@ -10,13 +10,22 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
   @finished_states ["stable", "shelved", "cancelled"]
 
   def index(conn, _params) do
-    {tasks, fetch_error} =
-      case Captain.list_tasks() do
-        {:ok, tasks} -> {tasks, nil}
-        {:error, reason} -> {[], reason}
-      end
+    if Captain.any_provider_authed?() do
+      {tasks, fetch_error} =
+        case Captain.list_tasks() do
+          {:ok, tasks} -> {tasks, nil}
+          {:error, reason} -> {[], reason}
+        end
 
-    html(conn, index_html(conn, tasks, fetch_error))
+      html(conn, index_html(conn, tasks, fetch_error))
+    else
+      conn
+      |> put_flash(
+        :info,
+        "Authenticate a provider to let Reverb start steering your app."
+      )
+      |> redirect(to: ~p"/captain/providers")
+    end
   end
 
   def create(conn, %{"captain" => %{"prompt" => prompt}}) do
@@ -56,7 +65,6 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
 
   defp index_html(conn, tasks, fetch_error) do
     project_name = Captain.project_name() |> escape_html()
-    opencode_url = Captain.opencode_url() |> escape_html()
     running = Enum.filter(tasks, &(&1["state"] in @running_states))
     queued = Enum.filter(tasks, &(&1["state"] in @queued_states))
     finished = Enum.filter(tasks, &(&1["state"] in @finished_states)) |> Enum.take(8)
@@ -158,11 +166,11 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
           <div class="topbar">
             <div class="title">
               <h1>Captain Console</h1>
-              <p>#{project_name} ships changes from here. OpenCode stays the credential bridge, not the steering wheel.</p>
+              <p>#{project_name} ships changes from here. Captain is the single entrypoint for provider auth and for steering the app.</p>
             </div>
             <nav class="nav">
               <a href="/">Homepage</a>
-              <a href="#{opencode_url}" target="_blank" rel="noreferrer">Open OpenCode Web</a>
+              <a href="/captain/providers">Providers</a>
             </nav>
           </div>
 
@@ -176,7 +184,7 @@ defmodule ReverbQuickstartTemplateWeb.CaptainController do
               <textarea name="captain[prompt]" placeholder="Describe one concrete change you want to see in the app."></textarea>
               <div class="composer-footer">
                 <div class="composer-note">
-                  Keep requests small and concrete. OpenCode provider setup lives behind the gear in the lower-left corner of OpenCode web, then the Providers tab.
+                  Keep requests small and concrete. Manage provider credentials at <a href="/captain/providers" style="color:#bae6fd;">/captain/providers</a>.
                 </div>
                 <button type="submit">Queue Captain Task</button>
               </div>

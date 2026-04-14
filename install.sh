@@ -646,20 +646,8 @@ compose -f "$project_dir/docker-compose.yml" up -d
 check "Compose stack is booting"
 
 wait_for_url "Phoenix app" "http://127.0.0.1:$app_host_port" 1200
-wait_for_url "OpenCode web" "http://127.0.0.1:$opencode_host_port/global/health" 300
-
-headline "Connect A Provider"
-printf "Open these in your browser:\n"
-printf "  - App UI: %s\n" "http://localhost:$app_host_port"
-printf "  - OpenCode web: %s\n\n" "http://localhost:$opencode_host_port"
-printf "%s\n" "In OpenCode web, click the gear in the lower-left corner, then open the Providers tab to connect a provider."
-printf "%s\n" "Do not steer the app from OpenCode web. Use http://localhost:$app_host_port/captain for product requests."
-
-headline "Resuming Reverb"
-compose -f "$project_dir/docker-compose.yml" exec -T reverb sh -lc 'curl -fsS -X POST http://127.0.0.1:4010/api/scheduler/resume >/dev/null'
-check "Reverb scheduler resumed"
 
 headline "Ready"
 printf "%bCaptain your app here:%b %s\n" "$BOLD" "$RESET" "http://localhost:$app_host_port/captain"
-printf "%bOpenCode web:%b %s\n" "$BOLD" "$RESET" "http://localhost:$opencode_host_port"
 printf "%bProject folder:%b %s\n" "$BOLD" "$RESET" "$project_dir"
+printf "\n%s\n" "Open Captain in your browser and sign in as the admin user above. Captain will walk you through authenticating Claude (the default agent provider) before it starts steering the app."

@@ -216,29 +216,60 @@ defmodule Reverb.Agent.Pool do
     {:noreply, state}
   end
 
+  def handle_cast(:refresh_presence, state) do
+    for adapter <- @adapters do
+      case :ets.lookup(@table, adapter) do
+        [{^adapter, entry}] ->
+          :ets.insert(@table, {adapter, %{entry | cli_present: cli_present?(adapter)}})
+
+        [] ->
+          :ok
+      end
+    end
+
+    {:noreply, state}
+  end
+
   @impl true
   def handle_info(:health_check, state) do
     now = DateTime.utc_now()
 
     for adapter <- @adapters do
       case :ets.lookup(@table, adapter) do
-        [{^adapter, entry}] when entry.consecutive_failures >= @max_consecutive_failures ->
-          if entry.last_failure_at do
-            elapsed = DateTime.diff(now, entry.last_failure_at, :millisecond)
+        [{^adapter, entry}] ->
+          entry =
+            case entry do
+              %{consecutive_failures: f} = entry when f >= @max_consecutive_failures ->
+                if entry.last_failure_at &&
+                     DateTime.diff(now, entry.last_failure_at, :millisecond) > @failure_cooldown_ms do
+                  Logger.info("[Reverb.Pool] Re-enabling #{adapter} after cooldown")
+                  %{entry | consecutive_failures: 0}
+                else
+                  entry
+                end
 
-            if elapsed > @failure_cooldown_ms do
-              Logger.info("[Reverb.Pool] Re-enabling #{adapter} after cooldown")
-              :ets.insert(@table, {adapter, %{entry | consecutive_failures: 0}})
+              entry ->
+                entry
             end
-          end
 
-        _ ->
+          :ets.insert(@table, {adapter, %{entry | cli_present: cli_present?(adapter)}})
+
+        [] ->
           :ok
       end
     end
 
     Process.send_after(self(), :health_check, @health_check_interval_ms)
     {:noreply, state}
+  end
+
+  @doc """
+  Manually refresh the `cli_present` flag for each adapter. Called after the
+  auth subsystem has installed new credentials so the pool can pick up the
+  change without waiting for the next health-check tick.
+  """
+  def refresh_presence do
+    GenServer.cast(__MODULE__, :refresh_presence)
   end
 
   defp initial_entry(adapter) do

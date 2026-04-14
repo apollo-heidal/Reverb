@@ -83,7 +83,7 @@ services:
       REVERB_USE_SHORTNAME: "true"
       REVERB_PROD_NODE: prod@prod
       REVERB_ALLOWED_NODES: prod@prod
-      REVERB_AGENT_ADAPTER: opencode
+      REVERB_AGENT_ADAPTER: claude
       REVERB_AGENT_MAX_AGENTS: "1"
       REVERB_OPERATOR_ENABLED: "true"
       REVERB_OPERATOR_IP: 0.0.0.0
@@ -93,19 +93,19 @@ services:
       REVERB_WORKSPACE_ROOT: /workspaces
       REVERB_WORKSPACE_REPO_ROOT: /workspace_root/__QUICKSTART_APP_SLUG__/app
       REVERB_VALIDATION_COMMANDS: mix compile;;mix assets.deploy
-      REVERB_OPENCODE_WEB_ENABLED: "true"
+      REVERB_OPENCODE_WEB_ENABLED: "false"
       REVERB_OPENCODE_WEB_HOST: 0.0.0.0
       REVERB_OPENCODE_WEB_PORT: "4096"
       REVERB_OPENCODE_WEB_WORKDIR: /workspace_root/__QUICKSTART_APP_SLUG__/app
-    ports:
-      - "127.0.0.1:__OPENCODE_PORT__:4096"
     volumes:
       - "__WORKSPACE_ROOT_HOST_PATH__:/workspace_root__BIND_MOUNT_SUFFIX__"
       - reverb_workspaces:/workspaces
       - opencode_data:/root/.local/share/opencode
+      - claude_config:/root/.claude
 
 volumes:
   prod_db_data:
   reverb_db_data:
   reverb_workspaces:
   opencode_data:
+  claude_config:

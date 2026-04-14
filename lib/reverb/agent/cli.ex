@@ -10,8 +10,6 @@ defmodule Reverb.Agent.CLI do
   alias Reverb.Agent.CLI.{Claude, Codex, Generic, Hermes, OpenCode}
   require Logger
 
-  @retryable_error_classes [:timeout, :exit_code, :command_not_found]
-
   @type result :: %{
           provider: atom(),
           command: String.t(),
@@ -72,6 +70,18 @@ defmodule Reverb.Agent.CLI do
           {next_adapter, next_model} ->
             Logger.info(
               "[Reverb.CLI] Falling back from #{adapter}/#{model} to #{next_adapter}/#{next_model}"
+            )
+
+            :telemetry.execute(
+              [:reverb, :agent, :pool, :fallback],
+              %{attempt: length(tried)},
+              %{
+                from_adapter: adapter,
+                from_model: model,
+                to_adapter: next_adapter,
+                to_model: next_model,
+                reason: reason
+              }
             )
 
             run_chain(prompt, opts, {next_adapter, next_model}, tried)

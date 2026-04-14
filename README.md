@@ -88,14 +88,23 @@ config :reverb, Reverb.Workspaces,
 config :reverb, Reverb.Agent,
   enabled: true,
   max_agents: 1,
-  agent_command: "opencode",
-  agent_args: ["run", "--format", "json", "--dangerously-skip-permissions"],
-  agent_adapter: :opencode,
-  agent_model: "gpt-5.4"
+  agent_command: "claude",
+  agent_args: [
+    "--print",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--dangerously-skip-permissions"
+  ],
+  agent_adapter: :claude,
+  agent_model: "claude-sonnet-4-6",
+  fallback_adapters: [:opencode]
 ```
 
-Legacy adapters remain available, but `:hermes`, `:codex`, `:claude`, and
-`:generic` are retained compatibility paths and are not production-complete.
+The Claude Code CLI is the default adapter. OpenCode remains a first-class
+fallback — when `:claude` fails, the adapter pool transparently retries with
+`:opencode` if it is installed and authed. `:hermes`, `:codex`, and `:generic`
+are retained compatibility paths and are not production-complete.
 
 Optional validation:
 
@@ -173,6 +182,11 @@ Available endpoints:
 - `GET /api/runs`
 - `POST /api/scheduler/pause`
 - `POST /api/scheduler/resume`
+- `GET /api/agent/pool`
+- `GET /api/agent/auth/status`
+- `POST /api/agent/auth/claude/start`
+- `POST /api/agent/auth/claude/complete`
+- `POST /api/agent/auth/claude/cancel`
 
 Runtime env overrides are also supported:
 
@@ -217,10 +231,10 @@ curl -fsSL https://raw.githubusercontent.com/apollo-heidal/reverb/main/install.s
 
 The quickstart stack exposes:
 
-- `localhost:4000` for the generated Phoenix app and `/captain`
-- `localhost:4096` for OpenCode web running inside the Reverb container
+- `localhost:4000` for the generated Phoenix app, `/captain`, and `/captain/providers`
 - a `prod` app container generated from `phx.new`
-- a standalone `reverb` coordinator container
+- a standalone `reverb` coordinator container with the `claude` and `opencode`
+  CLIs installed; credentials are persisted via a `claude_config` volume
 - separate Postgres containers for the app and Reverb state
 
 The installer prompts for an initial admin email, then generates a very strong
@@ -232,25 +246,30 @@ If you lose the generated password, recovery is more manual: inspect the
 persisted app env used by the prod container and read `INITIAL_ADMIN_PASSWORD`
 from there.
 
-For real provider-backed runs, put agent auth only in a coordinator env file
-such as `.env.reverb` and load it into the Reverb container with `env_file`.
-Typical examples are `OPENCODE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`GEMINI_API_KEY`, and `GH_TOKEN`. Reverb should receive these as container env
-vars, not embed them in prompts, task metadata, or log output.
+### Connecting a provider
 
-If you use OpenCode's TUI login flow with ChatGPT Plus/Pro, you do not need an
-OpenAI API key. Authenticate in OpenCode with `/connect`, select `OpenAI`, then
-choose `ChatGPT Plus/Pro`. OpenCode stores that login at
-`~/.local/share/opencode/auth.json`. For a containerized Reverb coordinator,
-mount `~/.local/share/opencode` from the host into the container at
-`/root/.local/share/opencode` so the in-container `opencode` binary can reuse
-the same auth session.
+`/captain/providers` is the single entrypoint for provider authentication.
+After the installer finishes, sign in to Captain as the admin user; if no
+provider is authenticated yet, Captain automatically redirects to
+`/captain/providers` with an onboarding banner. Click **Authenticate Claude** —
+Reverb runs `claude setup-token` inside the coordinator container, displays the
+OAuth URL it prints, and waits for you to paste the resulting code back in the
+browser. On success, the credential is stored in the `claude_config` docker
+volume and persists across restarts; the scheduler resumes automatically and
+Captain begins steering the app.
 
-During quickstart setup, connect a provider through `localhost:4096`, but do
-not steer the app from OpenCode web. Use `localhost:4000/captain` for product
-requests. In OpenCode web, click the gear in the lower-left corner and open the
-Providers tab to connect a provider. Captain tasks can queue freely, and Reverb
-schedules them before automated log-derived work.
+The scheduler stays paused (`REVERB_SCHED_START_PAUSED=true`) until at least
+one provider is authenticated, so the system is safe to boot without credentials.
+
+To re-authenticate later, visit `/captain/providers` again and start a new
+session. To use an existing host credential file instead, mount it into the
+`reverb` container's `/root/.claude` path.
+
+OpenCode remains a supported fallback adapter for power users. Set
+`REVERB_AGENT_ADAPTER=opencode` in `.env.reverb` and bring credentials in via
+`~/.local/share/opencode/auth.json` (mounted via the `opencode_data` volume).
+`REVERB_OPENCODE_WEB_ENABLED` defaults to `false`; flip it back on and expose
+port 4096 locally if you want to use the OpenCode web UI for credential entry.
 
 ## Installation Scaffold
 
