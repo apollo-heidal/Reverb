@@ -79,13 +79,29 @@ defmodule Reverb.Agent.Auth do
   reports claude; opencode and others are reported as `:unknown` because their
   credential state lives in adapter-specific files we don't inspect yet.
   """
-  @spec status() :: %{claude: :authed | :missing, opencode: :unknown}
+  @spec status() :: %{claude: claude_status(), opencode: :unknown}
   def status do
     %{
       claude: claude_status(),
       opencode: :unknown
     }
   end
+
+  @typedoc """
+  Result of the passive claude credential check.
+
+    * `:authed` — credentials file is present, parses, carries a recognised
+      OAuth token or API key, and any embedded expiry is still in the future.
+    * `:expired` — credentials file parses but its `expiresAt` is in the past.
+    * `:invalid` — credentials file exists but is unreadable, not valid JSON,
+      or does not carry a recognised credential shape.
+    * `:missing` — credentials file is absent.
+
+  The passive check guarantees only that the file *could* be a valid
+  credential. An authoritative guarantee requires a live probe against the
+  provider.
+  """
+  @type claude_status :: :authed | :expired | :invalid | :missing
 
   @impl true
   def init(_opts) do
@@ -320,10 +336,30 @@ defmodule Reverb.Agent.Auth do
   end
 
   defp claude_status do
-    if File.exists?(Path.expand("~/.claude/.credentials.json")) do
-      :authed
+    path = Path.expand("~/.claude/.credentials.json")
+
+    with true <- File.exists?(path),
+         {:ok, raw} <- File.read(path),
+         {:ok, json} <- Jason.decode(raw) do
+      classify_claude_credentials(json)
     else
-      :missing
+      false -> :missing
+      _ -> :invalid
     end
   end
+
+  defp classify_claude_credentials(%{"claudeAiOauth" => %{"accessToken" => token} = oauth})
+       when is_binary(token) and byte_size(token) > 20 do
+    case Map.get(oauth, "expiresAt") do
+      nil -> :authed
+      ms when is_integer(ms) -> if ms > System.system_time(:millisecond), do: :authed, else: :expired
+      _ -> :authed
+    end
+  end
+
+  defp classify_claude_credentials(%{"apiKey" => key})
+       when is_binary(key) and byte_size(key) > 20,
+       do: :authed
+
+  defp classify_claude_credentials(_), do: :invalid
 end

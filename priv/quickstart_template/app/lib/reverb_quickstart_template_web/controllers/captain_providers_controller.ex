@@ -119,6 +119,8 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
           .pill { border-radius: 999px; padding: 5px 12px; font-size: 0.85rem; }
           .pill-authed { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; }
           .pill-missing { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
+          .pill-expired { background: rgba(250, 204, 21, 0.18); color: #fde68a; }
+          .pill-invalid { background: rgba(249, 115, 22, 0.18); color: #fed7aa; }
           .pill-unknown { background: rgba(148, 163, 184, 0.18); color: #e2e8f0; }
           button, .btn {
             border: 0; border-radius: 14px; padding: 11px 16px; font: inherit; font-weight: 700;
@@ -184,6 +186,23 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
     """
   end
 
+  defp render_claude_section(nil, status, csrf) when status in ["expired", "invalid"] do
+    reason =
+      case status do
+        "expired" -> "The stored Claude token has expired."
+        "invalid" -> "The Claude credentials file is unreadable or missing required fields."
+      end
+
+    """
+    <p class="step" style="color: #fde68a;">#{reason} Re-authenticate to refresh it.</p>
+    <form action="/captain/providers/claude/start" method="post">
+      <input type="hidden" name="_csrf_token" value="#{csrf}" />
+      <button type="submit">Re-authenticate Claude</button>
+    </form>
+    <p class="step">This runs <code>claude setup-token</code> inside the reverb container and overwrites the stored credential.</p>
+    """
+  end
+
   defp render_claude_section(nil, _status, csrf) do
     """
     <form action="/captain/providers/claude/start" method="post">
@@ -217,6 +236,10 @@ defmodule ReverbQuickstartTemplateWeb.CaptainProvidersController do
   defp status_class(:authed), do: "pill-authed"
   defp status_class("missing"), do: "pill-missing"
   defp status_class(:missing), do: "pill-missing"
+  defp status_class("expired"), do: "pill-expired"
+  defp status_class(:expired), do: "pill-expired"
+  defp status_class("invalid"), do: "pill-invalid"
+  defp status_class(:invalid), do: "pill-invalid"
   defp status_class(_), do: "pill-unknown"
 
   defp flash_block(nil, _kind), do: ""
