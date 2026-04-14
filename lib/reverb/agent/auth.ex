@@ -320,10 +320,10 @@ defmodule Reverb.Agent.Auth do
   end
 
   defp claude_status do
-    cond do
-      File.exists?(Path.expand("~/.claude/.credentials.json")) -> :authed
-      File.exists?(Path.expand("~/.claude.json")) -> :authed
-      true -> :missing
+    if File.exists?(Path.expand("~/.claude/.credentials.json")) do
+      :authed
+    else
+      :missing
     end
   end
 end
